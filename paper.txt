@@ -1,0 +1,440 @@
+Vehicle Model Aided Inertial Navigation for a UAV using Low-cost
+                                            Sensors
+
+                                  Mitch Bryson and Salah Sukkarieh
+                           ARC Centre of Excellence in Autonomous Systems
+
+                                              University of Sydney
+                                              NSW 2006, Australia
+                                      m.bryson,salah@acfr.usyd.edu.au
+
+                        Abstract                               1. Vehicle Model Constraints - specific constraints
+                                                                   on the pose of the vehicle i.e. a wheeled vehicle's
+      This paper considers two different methods of                sideways velocity will be zero.
+      using a dynamic vehicle model in order to aid
+      pose estimates provided by an Inertial Naviga-           2. Vehicle Dynamic Modelling - motion model of
+      tion System (INS) for a Un-manned Aerial Ve-                 the vehicle given a history of the vehicle pose, con-
+      hicle (UAV). We consider low-cost inertial sen-              trol inputs and external forces acting on the vehicle.
+      sors in which errors from sensor noise, bias and
+      scale-factor errors cause a significant growth in      The aiding of the inertial navigator with vehicle model
+      pose estimate errors when the navigation sys-          information has been demonstrated in the past through
+      tem is un-aided by external positioning infor-         the use of vehicle dynamic equations [Koifman and Bar-
+      mation such as from GPS or terrain observa-            Itzhack, 1999; Ma et al., 2003] and vehicle model con-
+      tions. It is shown that an accurate dynamic            straints [Dissanayake et al., 2001]. In these papers, it is
+      vehicle model can considerably reduce the er-          shown that the major value in the use of a vehicle model
+      ror growth in vehicle pose estimates by enhanc-        is that it enhances the observability of the sources of
+      ing the observability of the inertial sensor er-       error in the inertial navigation system. In this paper,
+      ror sources. Furthermore we analyse the effec-         we contribute further to the understanding of the value
+      tiveness of using the vehicle model information        of dynamic vehicle model aiding by comparing two dif-
+      given that there are errors in the vehicle model.      ferent methods of using of a six-degree of freedom dy-
+                                                             namic Flight Vehicle Model (FVM) to aid in estimat-
+1 Introduction                                               ing the errors in the inertial navigation solution for an
+                                                             Un-manned Aerial Vehicle (UAV) using low-cost iner-
+Inertial navigation has commonly been used as a means        tial sensors. The first method involves comparing and
+of localisation for various autonomous vehicles including    correcting for the velocity and attitude of the aircraft as
+land, underwater and aerial vehicles. The disadvantage       predicted by both the INS and FVM. The second method
+in the use of an Inertial Navigation System (INS), par-      uses the FVM predicted aircraft acceleration and rota-
+ticularly when using low-cost sensors, is due to the error   tion rates in order to provide direct online calibration of
+growth in pose estimates due to the dead-reckoning na-       the IMU. We look at the effectiveness of each method
+ture of the sensor. Traditionally external sensors such      given that there are parameter errors in the FVM, hint-
+as GPS [Sukkarieh et al., 1999; Meyer-Hilberg and Ja-        ing towards the relative advantages and disadvantages
+cob, 1994; Yang et al., 2000] or vision/radar (terrain-      of each approach when applied to a real UAV navigation
+aided/beacon-based navigation) [Bar-Itzhack, 1978; Kim       problem.
+and Sukkarieh, 2003] have been used to aid the solution
+of the inertial navigator, thus constraining the errors in      In Section 2, we present a general FVM for a UAV and
+pose estimates. These external sensors have several prac-    describe the methods of using the model to aid the iner-
+tical disadvantages mainly relating to a reliance on exter-  tial navigator. Section 3 describes a simulated scenario
+nal information, such as reception of satellite transmis-    in which a UAV using a GPS aided INS loses satellite
+sions or reliably observable terrain features. One source    transmission mid-flight, after which vehicle model aid-
+of information that can be used to aid in the localisation   ing is used to constrain the aircraft's pose estimate drift.
+of the vehicle, without the need for external sensing, is    In Section 4 we present simulation results of using two
+that from knowledge or beliefs of the vehicle's motion.      different methods for FVM aided INS. A discussion of
+Such information can be represented in two ways:             the results, conclusions and future work are provided in
+                                                            Figure 2: INS/FVM Configuration 2 - Acceleration and
+                                                            Rotation Rate Aiding
+
+Figure 1: INS/FVM Configuration 1 - Velocity and At-        the accelerometers and b is the aircraft rotation rates
+titude Aiding                                               as read by the gyros. Cbn and Ebn are the body to nav-
+                                                            igation frame transformation matrix and rotation rate
+Section 5.
+                                                            transformation matrix respectively as given below:
+
+2 System Description                                                 cc     css - sc   csc + ss 
+                                                            Cbn =  sc       sss + cc   ssc - cs  (4)
+Figures (1) and (2) illustrate two different methods for
+aiding the INS using the dynamic vehicle model. In both                 -s        c s        c c
+configurations, the INS computes the position, velocity
+and Euler angles of the aircraft by integrating the iner-                    1 st ct 
+tial sensor readings of acceleration and rotation rates of
+the vehicle provided by an on-board Inertial Measuring      Ebn =  0 c                 -s   (5)
+Unit (IMU). In the first configuration, the vehicle model
+computes the velocity and Euler angles of the aircraft                      0 ssec csec
+using the aircraft control inputs. An extended Kalman
+filter (EKF) is then used to compute the errors in both        where s(.), c(.) and t(.) represent sin(.), cos(.) and
+the INS and FVM from an observation of the differences      tan(.) respectively and  = [, , ] are the Euler angles.
+between the INS and FVM computed velocity and Euler
+angles. In the second configuration, the FVM is used to     2.2 Flight Vehicle Dynamic Model
+compute the acceleration and rotation rates of the air-
+craft from control inputs. The inputs into the extended     The FVM is made up of a set of dynamic equations that
+Kalman filter in this case are the differences between the  predict the values of the vehicle state x^v = [p, v, , b]
+acceleration and rotation rates computed by the FVM         composed of the vehicle's position, velocity, Euler angles
+and those read from the inertial sensors. The extended      and rotation rates using the aircraft control inputs which
+Kalman filter is then used to estimate the errors in the    are assumed known from the aircraft's control system.
+inertial sensors and in the FVM accelerations and ro-
+tation rates which are then used to correct the inertial    Flight Vehicle Dynamic Model Equations
+sensors and FVM accordingly.
+                                                            Figure (3) illustrates the relationship between the rele-
+2.1 Inertial Navigation System                              vant aircraft frames of reference. The motion of a flight
+                                                            vehicle can be described by the six-degree of freedom
+The position (pn), velocity (vn) and Euler angles ()        equations of motion where the forces and moments act-
+of the aircraft, referenced in the frame n = [N, E, D]      ing on the vehicle are a function of the vehicle's current
+(North, East, Down) are computed as follows:                position, velocity, Euler angles and rotation rates. The
+                                                            equations of motion are as follows:
+
+                                                            u = rv - qw + gx + (Fx/m)       (6)
+
+            pn = vn          (1)                            v = pw - ru + gy + (Fy/m)       (7)
+
+            vn = Cbnfb + gn  (2)                            w = qu - pv + gz + (Fz/m)       (8)
+
+             = Ebnb          (3)                            p = C3pq + C4qr + C1l + C2N     (9)
+
+   where gn is the acceleration due to gravity acting on    q = C7pr - C6(p2 - r2) + C5M    (10)
+the vehicle, fb is the body axes accelerations read by
+                                                            r = C9pq - C3qr + C2l + C8N     (11)
+                                                             aircraft's control surfaces. These forces and moments are
+                                                             given by the following equations:
+
+                                                             Fx  =  T         +   1            2S              (22)
+                                                                                  2 CX V
+
+                                                             Fy  =     1      CY  V   2S                       (23)
+                                                                       2
+
+                                                             Fz  =     1      CZ  V   2  S                     (24)
+                                                                       2
+
+                                                             l   =     1      ClV    2S  b                     (25)
+                                                                       2
+
+                                                             M   =     1      CM  V   2  S  c                  (26)
+                                                                       2
+
+                                                             N   =     1      CN  V   2  S  b                  (27)
+                                                                       2
+
+Figure 3: Aircraft Frames of Reference                       where S, c, b are the aircraft's planform wing area, wing
+                                                             chord and wing span respectively, V is the total aircraft
+                                                             velocity and  is the atmospheric density of surrounding
+                                                             airflow. The thrust force T is approximated as:
+
+   where vb = [u, v, w] are the aircraft body axes ve-           T  =  Pmax           T                        (28)
+locity components, b = [p, q, r] are the aircraft body                    V
+axes rotation rates, Fx, Fy, Fz and l, M, N are the to-
+tal force and moment components acting on the aircraft,      where Pmax is the maximum engine power available, 
+referenced to the body axes, gx, gy, gz are components       is the propeller efficiency and T is the throttle con-
+of gravitational acceleration acting on the aircraft, ref-   trol input to the aircraft. The force and moment co-
+erenced to the body axes and m is the total mass of the      efficients CX,Y,Z,l,M,N are all functions of the current
+aircraft. The coefficients C0-9 are given by the following   aircraft velocity and orientation and the control inputs
+equations:                                                   e, a, r from the elevator, ailerons and rudder respec-
+                                                             tively. These coefficients are evaluated using Equations
+                                                             (29) to (36) shown below:
+
+C0 = IxxIzz - Ix2z                      (12)                                                          c
+                                        (13)                 CL = CL0 + CL  + CLq 2V q + CLe e (29)
+C1  =  Izz
+       C0                               (14)                 CD = CD0 + KCL2                                   (30)
+                                        (15)
+C2  =  Ixz                              (16)                 CX = CDsin() - CLcos()                            (31)
+       C0                               (17)
+                                        (18)                 CZ = -CDcos() - CLsin()                           (32)
+C3 = C2(Ixx - Iyy + Izz)                (19)
+                                        (20)                                      b                   b
+                                        (21)                 CY = CY  + CYp 2V p + CYr 2V r
+C4 = C1(Iyy - Izz) - C2Ixz
+             1                                               +CYa a + CYr r                                    (33)
+
+C5 = Iyy                                                                      b                    b
+
+C6 = C5Ixz                                                   Cl = Cl  + Clp 2V p + Clr 2V r
+
+C7 = C5(Izz - Ixx)                                                        +Cla a + Clr r                       (34)
+                                                                                                         c     (35)
+C8  =  Ixx
+       C0                                                    CM = CM0 + CM  + CMq 2V q +
+
+C9 = C8(Ixx - Iyy) + C2Ixz                                                        cg
+                                                                                   c
+   where Ixx, Iyy, Izz are the diagonal components and       CMe e + CL
+Ixz is the x-z axis cross-component of the aircraft's iner-
+tia matrix I.                                                                     b                         b
+                                                             CN = CN  + CNp 2V p + CNr 2V r
+   The forces and moments acting on the flight vehicle
+are mainly due to thrust provided by the aircraft's pow-     +CNa a + CNr r                                    (36)
+erplant and aerodynamic forces and moments both from
+the motion of the aircraft and the current inputs to the        where K is the lift-induced drag coefficient of the air-
+                                                             craft and ,  are the aircraft angle of attack and angle of
+sideslip respectively. The parameters C(.)(.) , K, , Pmax    the Jacobian of the non-linear FVM equations w.r.t the
+are aircraft specific model parameters that can be ap-       FVM states xF V M as shown:
+proximated as constants for most aircraft undertaking
+subsonic flight. These parameters are usually evaluated      x F V M = f n(xF V M , Ucont)            (45)
+for an aerial vehicle as part of the control design process
+using a combination of empirical analysis and wind tun-      FFVM    =  x F V M                       (46)
+nel testing. The velocity (vb) and rotation rates (b) of                xF V M
+the vehicle, referenced to the body frame are found by
+integrating equations (6-11) w.r.t time given the values     xF V M = [u, v, w, , , , p, q, r]
+in equations (12-36). The velocity (vn) of the vehicle in
+the navigation frame of reference is found using the body    The noise input matrix G is:
+to navigation frame transformation by:
+                                                                    Cbn 0 0 0 0 0 
+                                                                    0 -Cbn 0 0 0 0 
+                                                                                                    
+           vn = Cbnvb                                                0  0  I               0  0  0  
+                                                   (37)      G  =    0                                (47)
+                                                                                                    
+                                                                        0  0               I  0  0  
+                                                                   
+
+   Equations (1) and (3) are then used to calculate the              0  0  0               0  I  0  
+position and Euler angles of the vehicle.                                                           
+
+                                                                     0 0 000I
+
+2.3 Estimation Process                                          A virtual observation (zobs) is made as the difference
+                                                             between the velocity and attitude predicted by the INS
+Configuration 1                                              and FVM. The relationship between the estimated errors
+In the first configuration the estimated state vector x^     and observation is given by the observation model (H):
+is composed of twelve inertial navigation errors; three
+velocity errors, three misalignments, three accelerometer       zobs =  vINS - vF V M                 (48)
+errors and three gyro errors and the nine vehicle model                 INS - F V M                   (49)
+errors in velocity, attitude and rotation rates.
+
+x^INS = [vNI , vEI , vDI , N , E , D,                                = Hx + 
+
+      fbx, fby, fbz, bx, by, bz] (38)                        H=      I 0 0 0 -I 0 0                   (50)
+                                                                     0 B 0 0 0 -I 0
+x^F V M = [vNV , vEV , vDV , , , ,
+
+      pv, qv, rv]                                  (39)             -csec -ssec 0 
+
+x^ = [x^INS, x^F V M ]T                            (40)      B =  s        -c                    0    (51)
+
+                                                                     -tc -ts -1
+
+The process model for the errors is expressed as:               where  is an uncorrelated, zero-mean observation
+                                                             noise vector of dimension 6 and covariance R and  =
+         x^ = Fx^ + Gµ                             (41)      [, , ] are the Euler angles as predicted by the INS.
+
+   where F describes the combined INS and FVM error             A Kalman filter is then used to estimate the system
+dynamics, G is the noise input matrix and µ is an un-        errors from the virtual observations. Errors in the posi-
+correlated, zero-mean process noise vector of dimension      tions calculated by each system are not estimated due to
+21 and covariance Q representing the inertial sensor and     an inherent un-observability in these states. This lack of
+FVM process noises. The error dynamics matrix F is:          observability stems from the lack of coupling between the
+                                                             position and other states in the FVM (i.e. forces acting
+F=         FINS        0                           (42)      on the aircraft not directly being a function of the air-
+                                                             craft's position). Usually a coupling could be attained
+              0 FFVM                                         through the variation in atmospheric density () with
+                                                             altitude or through operating over a large area of the
+          0 An Cbn 0                                         Earth's surface where the navigation frame would rotate
+                   0 -Cbn                                    as a function of position, however the assumption is that
+FINS  =    0  0                                    (43)      these couplings would produce very weak observability
+           0  0    0         0                               at best.
+
+         
+
+           00 0 0
+
+       0 -fD fE 
+
+An =  fD 0 -fN                                     (44)      Configuration 2
+                                                             In the second configuration the estimated state vector is
+           -fE fN         0                                  composed of errors in the acceleration and rotation rates
+                                                             as read from the inertial sensors and from the FVM, thus:
+   where fN,E,D are the navigation frame components of
+the vehicle's specific force and FFVM is calculated as
+             x^IMU = [fbxI , fbyI , fbzI ,        (52)
+                               bxI , bxI , bxI ]
+                                                  (53)
+             x^F V M = [fbxv , fbyv , fbzv ,      (54)
+                               bxv , bxv , bxv ]
+
+                   x^ = [x^IMU , x^F V M ]T
+
+   In this case the process model is of the dynamics of
+the errors within the inertial sensors and the FVM error
+dynamics. The combined error dynamics are:
+
+                     x^ = Fx^ + µ                 (55)
+
+       Facc               0             0         (56)
+F= 0                   Fgyro            0
+                                   FFVM6x6                 Figure 4: The Brumby MkIII UAV
+            0             0
+
+Where µ is a white noise vector of dimension 12 and
+
+covariance Q. The sensor errors in this configuration      H=  I 0 -I 0                             (64)
+                                                               0 I 0 -I
+are modelled as a first order Markov process with time
+
+constant  :                                                   where  is an uncorrelated, zero-mean observation
+                                                           noise vector of dimension 6 and covariance R.
+              -(1/ax)        0          0
+                                                              As in the first configuration, a Kalman filter is used
+Facc =       0         -(1/ay )         0  (57)            to estimate inertial sensor and FVM errors from virtual
+                                                           observations.
+             0               0      -(1/az )
+
+              -(1/gx)           0       0                  3 Simulation Description
+
+Fgyro =      0           -(1/gy )       0  (58)            In this section we consider a scenario in which a aircraft
+                                                           using a GPS aided INS loses satellite transmission and
+             0                  0   -(1/gz )               can no longer provide positioning fixes to the INS. In
+                                                           this situation, errors in the INS pose estimate will grow
+The process model for the errors in the FVM accelera-      without bound until a GPS fix is reacquired. The air-
+                                                           craft considered is shown in Figure (4). It is a small UAV
+tions and rotation rates errors (FFVM6x6 ) and is calcu-   weighing 40kg with a wing span of 2.8 meters, capable of
+lated by:                                                  flying at 100kts. Vehicle acceleration and rotation rates
+                                                           are read from and onboard low-cost strapdown IMU for
+             FFVM6x6 =       0 Ffb|b              (59)     which specifications are shown in Table 1. All vehicle
+                             0 Fb
+
+                     Ffb |b  =  fb                (60)
+                                b
+
+                     Fb  =   b                    (61)
+                             b
+                                                                    Sampling Rate          400H z
+   where Ffb|b and Fb are Jacobians of the non-linear           Accelerometer Noise       0.1m/s2
+FVM equations w.r.t the FVM accelerations and rota-
+                                                                      Gyro Noise          0.1deg/s
+tion rates. In this case Ffb|b is evaluated using a nu-    Accelerometer Bias Stability  ±0.1m/s2
+merical method in order to evaluate the rate of change
+                                                                 Gyro Bias Stability     ±0.1deg/s
+of the body axes acceleration (fb) for varying values of
+b perturbed about the value calculated by the FVM.         Table 1: Strapdown IMU Specifications
+
+   A virtual observation (zobs) is made as the difference  model parameters for the UAV, as used by equations
+between the readings of the accelerations and rotation     (6-36), are known a-priori. Such vehicle model parame-
+                                                           ters, necessary for autonomous control of the UAV, are
+rates of the aircraft from the inertial sensors and those  often known to an accuracy of ±5% of the true values.
+                                                           In our simulation, the onboard vehicle navigation sys-
+predicted by the FVM.                                      tem starts to aid the INS with the FVM information at
+                                                           the time of satellite signal loss. Two simulations are run
+             zobs =    fbINS - fbF V M            (62)
+                       bINS - bF V M              (63)
+
+             = Hx + 
+Figure 5: Absolute Position Errors for the Un-Aided INS Figure 7: Absolute Euler Angle Errors for the Un-Aided
+                                                                               INS
+
+Figure 6: Absolute Velocity Errors for the Un-Aided INS     Figure 8: Absolute Position Errors with FVM Aiding:
+                                                            ±5% Parameter errors
+for each of the two configurations shown in Figures (1)
+and (2), the first in which all of the vehicle model aero-  INS vehicle position, velocity and Euler angles. The er-
+dynamic parameters C(.)(.) are varied by random errors      rors are considerable even over a short amount of time
+within ±5% of their true values and the second in which     and are attributed mainly to the biases in the IMU read-
+the parameters are varied by ±20%. In the scenario the      ings. Figures (8), (9) and (10) show the estimated po-
+UAV continues along it's flight path as designated by it's  sition, velocity and Euler angles of the vehicle when the
+current mission, which in this case is to track moving      two different configurations for vehicle model aiding are
+features on the ground. Small perturbations are applied     applied to the navigation system, with vehicle model pa-
+to the UAV's controls such that the vehicle undergoes       rameter errors of ±5%. Figures (11), (12) and (13) show
+a small amplitude Dutch roll behavior. This motion is       the estimated position, velocity and Euler angles of the
+critical to the operation of the combined navigation sys-   vehicle when the two different configurations with vehicle
+tem as it excites the coupling in the error dynamics of     model parameter errors of ±20%. The first configuration
+the FVM, providing observability of all of the estimated    exhibits a lower error than the second configuration in
+error sources.                                              both modelling error cases, particularly when modelling
+                                                            errors are large and the performance of configuration 2 is
+4 Results                                                   severely diminished. When vehicle model errors are large
+                                                            in the second configuration, cross-coupling in the rota-
+This section presents the results from the simulation.
+Figures (5), (6) and (7) show the errors in the un-aided
+Figure 9: Absolute Velocity Errors with FVM Aiding: Figure 11: Absolute Position Errors with FVM Aiding:
+
+±5% Parameter errors                                          ±20% Parameter errors
+
+Figure 10: Absolute Euler Angle Errors with FVM Aid- Figure 12: Absolute Velocity Errors with FVM Aiding:
+
+ing: ±5% Parameter errors                                     ±20% Parameter errors
+
+tion rate and acceleration errors in the FVM cause poor       5 Conclusions and Future Work
+accelerometer bias estimates, thus reducing the position
+and velocity accuracies. The advantage of the first con-      This paper has demonstrated two different methods for
+figuration is that there is only a marginal loss in accuracy  aiding the solution of an INS using vehicle model infor-
+between the ±5% and ±20% modelling error cases. This          mation for an aerial vehicle in simulation. It has been
+robustness to modelling errors stems from the fact that       shown in the simulation results that the navigation sys-
+FVM errors will result in slow error growth in the veloc-     tem performance (reduction in position, velocity and Eu-
+ity and attitude that can be estimated and rejected with      ler angle errors) has been significantly increased from
+greater ease than the rapid error dynamics in accelera-       the un-aided system when vehicle model information is
+tion and rotation rates, associated with FVM parameter        applied. We have shown that the combined navigation
+errors. Similar results can be seen in the IMU bias esti-     system performance is still greater than the un-aided
+mates from each configuration as shown in Figures (14)        INS, even when there exists small parameter errors in
+to (17).                                                      our model, particular when aiding using configuration 1.
+                                                              In the presence of parameter errors, it has been shown
+                                                              that the second configuration is less sucsessful at esti-
+                                                              mating IMU biases than the first configuration. This is
+                                                              most likely due to parameter errors resulting in sudden
+Figure 13: Absolute Euler Angle Errors with FVM Aid- Figure 15: Actual and Estimated Gyro biases with FVM
+
+ing: ±20% Parameter errors                                  Aiding: ±5% Parameter errors
+
+Figure 14: Actual and Estimated Accelermometer biases Figure 16: Actual and Estimated Accelermometer biases
+
+with FVM Aiding: ±5% Parameter errors                       with FVM Aiding: ±20% Parameter errors
+
+acceleration errors in the FVM but only gradual, slowly     Acknowledgments
+growing errors in the FVM velocity and Euler angles.
+One solution to this may be to not attempt to estimate      This work is supported in part by the ARC Centre of Ex-
+accelerometer biases when it is known that the vehicle      cellence programme, funded by the Australian Research
+model parameters of the flight vehicle are inaccurate,      Council (ARC) and the New South Wales State Govern-
+estimating only the gyro biases.                            ment.
+
+   In future work we propose to study the relationship      References
+between UAV manoeuvres and observability of the FVM
+dynamic errors, such as to determine exactly which air-     [Sukkarieh et al., 1999] S. Sukkarieh, E.M. Nebot, H.F.
+craft control actions will ensure observability of the er-     Durrant-Whyte, "A high integrity IMU/GPS naviga-
+ror estimates. Future work will also look at applying the      tion loop for autonomous land vehicle applications,"
+FVM aiding navigation system to a real flight vehicle in       IEEE Trans. on Robotics and Automation, Vol 15, No.
+which unknown wind disturbances and parameter errors           3, pp. 572-578, June 1999.
+will pose significant challenges to the system design.
+                                                            [Meyer-Hilberg and Jacob, 1994] J. Meyer-Hilberg, T.
+                                                               Jacob, "High accuracy Navigation and Landing Sys-
+                                                               tem using GPS/IMU System Integration," IEEE Po-
+Figure 17: Actual and Estimated Gyro biases with FVM
+Aiding: ±20% Parameter errors
+
+   sition, Location and Navigation Symposium, April
+   1994.
+
+[Yang et al., 2000] Y. Yang, J. Farrell, M. Barth, "High-
+   Accuracy, High-Frequency Differential Carrier Phase
+   GPS aided low-cost INS," IEEE Position, Location
+   and Navigation Symposium, March 2000.
+
+[Bar-Itzhack, 1978] I.Y. Bar-Itzhack, "Optimal Updat-
+   ing of INS Using Sighting Devices," AIAA Journal of
+   Guidance and Control, Vol 1, No. 5, pp. 305-312, Oc-
+   tober, 1978.
+
+[Kim and Sukkarieh, 2003] J.H. Kim, S. Sukkarieh,
+   "Airborne Simultaneous Localization and Map Build-
+   ing," IEEE International Conference on Robotics and
+   Automation, Taipei, 2003
+
+[Ma et al., 2003] M. Xin, S. Sukkarieh, J.H. Kim, "Ve-
+   hicle Model Aided Inertial Navigation," IEEE Confer-
+   ence on Intelligent Transportation Systems, Shanghai,
+   China 2003.
+
+[Koifman and Bar-Itzhack, 1999] M. Koifman, I.Y. Bar-
+   Itzhack, "Inertial Navigation System aided by Aircraft
+   Dynamics," IEEE Trans. on Control Systems Technol-
+   ogy, Vol. 7, No. 4, pp. 487-493, July 1999.
+
+[Dissanayake et al., 2001] M.W.M.G. Dissanayake, S.
+   Sukkarieh, E.M. Nebot, H.F. Durrant-Whyte "The
+   Aiding of a Low-Cost Strapdown Inertial Measuring
+   Unit Using Vehicle Model Constraints for Land Vehi-
+   cle Applications," IEEE Trans. on Robotics and Au-
+   tomation, Vol. 17, No. 5, pp. 731-747, October 2001.
+

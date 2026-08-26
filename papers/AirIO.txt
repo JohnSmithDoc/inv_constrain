@@ -1,0 +1,980 @@
+                                        IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. ACCEPTED JUNE, 2025                                                 1
+
+                                        AirIO: Learning Inertial Odometry with Enhanced
+                                                      IMU Feature Observability
+
+                                                                                 air-io.github.io
+
+                                                   Yuheng Qiu1, Can Xu1, Yutian Chen1, Shibo Zhao1, Junyi Geng2 and Sebastian Scherer1
+
+                                        drag  thrust
+
+arXiv:2501.15659v2 [cs.RO] 16 Jun 2025        gravity
+
+                                                                                                                       Ground Truth  AirIO  Start Point End Points
+
+                                        Fig. 1: When deploying learning-based IO on drones, we observed that preserving the IMU feature representation in the body frame while retaining gravitational
+                                        acceleration improves the ATE by 73.9% on the Blackbird dataset. This significant improvement occurs because preserving the IMU data in the body frame,
+                                        along with gravitational information, enhances observability and retains more kinematic details. Based on this finding, we propose AirIO, which outperforms
+                                        state-of-the-art algorithms without extra information like control signals or additional sensors.
+
+                                           Abstract--Inertial odometry (IO) using only Inertial Mea-                                             I. INTRODUCTION
+                                        surement Units (IMUs) offers a lightweight and cost-effective
+                                        solution for Unmanned Aerial Vehicle (UAV) applications, yet                   I NERTIAL Measurements Units (IMUs) are inexpensive
+                                        existing learning-based IO models often fail to generalize to UAVs                and ubiquitous sensors that provide linear accelerations and
+                                        due to the highly dynamic and non-linear-flight patterns that                  angular velocities. Due to the size, weight, power, and cost
+                                        differ from pedestrian motion. In this work, we identify that the              (SWAP-C) constraints, IO based only on light and low-cost
+                                        conventional practice of transforming raw IMU data to global                   sensors is ideal for Unmanned Aerial Vehicles (UAVs) applica-
+                                        coordinates undermines the observability of critical information               tions ranging from 3D mapping [1], exploration [2] to physical
+                                        in UAVs. By preserving the body-frame representation, our                      interaction [3]. Compared to exteroceptive sensors like vision
+                                        method achieves substantial performance improvements, with                     and LiDAR, IMUs are unaffected by visual degradation factors
+                                        a 66.7% average increase in accuracy across three datasets.                    such as motion blur [4] or dynamic object interruption [5],
+                                        Furthermore, explicitly encoding attitude information into the                 which are common in agile UAV flights [6]. Despite these
+                                        motion network results in an additional 23.8% improvement                      advantages, current IO solutions struggle to accurately adapt to
+                                        over prior results. Combined with a data-driven IMU correction                 the complex motion models of UAVs due to the IMU inherent
+                                        model (AirIMU) and an uncertainty-aware Extended Kalman                        noise and bias, leading to large drift over time, particularly
+                                        Filter (EKF), our approach ensures robust state estimation under               during agile maneuvers.
+                                        aggressive UAV maneuvers without relying on external sensors
+                                        or control inputs. Notably, our method also demonstrates strong                   Most recent advances in learning-based IO have focused on
+                                        generalizability to unseen data, underscoring its potential for                pedestrian and legged robots [7]­[9], utilizing motion priors
+                                        real-world UAV applications.                                                   like stride length [10] and repetitive gait patterns [11], [12]
+                                                                                                                       beyond IMU pre-integration [13]. In contrast, multirotor UAV
+                                           Index Terms--Aerial Systems: Perception and Autonomy; Deep                  motion involves rigorous maneuvers affecting orientation and
+                                        Learning Methods; Localization                                                 thrust, resulting in highly dynamic, nonlinear behavior without
+                                                                                                                       clear priors. Small attitude changes can cause significant
+                                           Manuscript received: February, 15, 2025; Revised April, 30, 2025; Accepted  variations in velocity and position, complicating the IO process
+                                        June, 1, 2025.                                                                 and making pedestrian-focused methods less effective [6]. As
+                                                                                                                       a result, deploying learning-based IO on UAVs often requires
+                                           This paper was recommended for publication by Editor Giuseppe Loianno       additional sensors, such as tachometers [14] or control inputs
+                                        upon evaluation of the Associate Editor and Reviewers' comments.               like thrust commands [6]. This raises our main questions:
+
+                                           Equal contribution.                                                            Why is learning IO not directly applicable to UAVs?
+                                           1Yuheng Qiu, Can Xu, Yutian Chen, Shibo Zhao, and Sebastian Scherer         How can learning IO be effectively deployed for UAVs?
+                                        are with the Robotics Institute, Carnegie Mellon University, Pittsburgh,
+                                        PA 15213, USA {yuhengq, canxu, yutianch, shiboz,
+                                        basti} @andrew.cmu.edu; 2Junyi Geng is with Department of
+                                        Aerospace Engineering, Pennsylvania State University, University Park, PA,
+                                        16802, USA jgeng@psu.edu.
+                                           Digital Object Identifier (DOI): see top of this page.
+2  IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. ACCEPTED JUNE, 2025
+
+   In this paper, we investigate the effective representation of   displacements using IMU data. Subsequent work has incorpo-
+learning-based IO in multirotor UAV motion and propose a           rated these learned displacements into EKF [7], [20], [21] or
+solution that relies solely on IMU data. Through rigorous          batched optimization frameworks [22]. To ensure consistency
+feature analysis and examination of UAV dynamics, we iden-         in IMU measurements, many of these methods transform the
+tify that the commonly used global-frame representation is         input IMU data into global coordinates using ground-truth
+less effective for dynamic, agile maneuvers due to the less        orientation. For pedestrian navigation, RoNIN [8] proposed
+observable attitude information compared to IMU data in            a Heading-Agnostic Coordinate Frame (HACF), aligning the
+the body-frame representation. To address this, we introduce       accelerometer's gravity vector with the z-axis and constraining
+AirIO, a learning-based IO method that explicitly encodes          rotation to the horizontal plane. This framework has been
+attitude information and predicts velocity using body-frame        widely adopted for learning-based IO [7], [20] due to its effec-
+representation. We further integrate an EKF that fuses IMU         tiveness in simplifying pedestrian motion. Building on HACF,
+pre-integration with the learning-based model for odometry         RIO [23] introduced rotation-equivalence data augmentation
+estimation. We show that our approach outperforms state-of-        to self-supervise pose estimation after orientation alignment.
+the-art algorithms [6] in various scenarios and environments,      Since pedestrians and wheeled vehicles predominantly move
+even without additional sensors or control information.            along the horizontal plane, HACF effectively removes yaw
+                                                                   dependency from the representation, thereby reducing learning
+   The main contributions of this work are:                        complexity and improving generalizability. Despite the success
+                                                                   in pedestrian navigation and wheeled robots [8], [24], these
+  1) We conduct the analysis of the extracted features from        representations are less effective for multirotor UAV motion,
+      different representations using t-Distributed Stochastic     which requires more sophisticated dynamic modeling. In this
+      Neighbor Embedding (t-SNE) and principal component           paper, we show that the commonly used global coordinate rep-
+      analysis (PCA). The results show that body-frame rep-        resentations hinder neural networks from effectively capturing
+      resentation is more expressive and observable. Simply        the dynamic complexities of UAVs.
+      changing the input representation can significantly im-
+      prove IO accuracy by an average of 66.7%.                    C. Inertial Odometry for Multirotor UAVs
+
+  2) Building on this, we develop AirIO, a learning-based IO          Existing learning-based IO methods have primarily focused
+      that encodes the attitude information and fuses it with      on pedestrian datasets, limiting their generalizability to plat-
+      the body-frame IMU data for velocity prediction. This        forms with more demanding motion dynamics, such as UAVs.
+      explicit encoding further improves accuracy by 23.8%.        Approaches like AI-driven pre-processing and down-sampling
+      Additionally, we integrate an uncertainty-aware IMU          of high-speed inertial data have been proposed for better state
+      preintegration model and a learned motion network into       estimation [25]. Due to its simplicity, most of the existing
+      EKF for odometry estimation.                                 methods continue adopting the global coordinate frame, such
+                                                                   as [6], [14], [26]. DIDO [14] estimates the thrust of UAVs
+  3) We validate our approach on extensive experiments. It         using tachometer data and addresses unmodeled forces by
+      outperforms existing IO algorithms without the need          incorporating a neural network. Building on this, the IMO [6]
+      for additional sensors or control information. It also       incorporates thrust information and IMU data within an EKF
+      demonstrates generalizability to the unseen datasets.        framework, which implicitly captures the drone dynamics.
+                                                                   However, IMO relies on additional control signals to capture
+                         II. RELATED WORK                          the drone's dynamics, as shown in Fig. 8, which may suffer
+                                                                   from overfitting on training datasets. DIVE [26], a more recent
+A. Model-based Inertial Odometry                                   work for UAV IO, encodes orientation alongside gravity-
+                                                                   removed global-frame acceleration. While this representation
+   Traditional model-based inertial odometry (IO) methods          improves the robustness of learning-based IO, our findings in
+rely on kinematic models [13] to estimate relative motion          Section. V indicate that it remains suboptimal for capturing
+and are often integrated with exteroceptive sensors such as        UAV dynamics comprehensively.
+cameras [15] and LiDAR [1]. While these methods achieve
+high accuracy, their dependence on external sensors makes                                  III. METHODOLOGY
+them vulnerable to disturbances caused by agile motion or
+dynamic environments. To address the SWAP challenge of                The goal of learning IO is to estimate relative position
+lightweight UAV navigation, Ref [16] introduced a method           transform (velocity) from the IMU data in the local body IMU
+that estimates tilt and velocity by fusing tachometer and IMU      frame. Most existing methods employ transforming the IMU
+data. Although effective, this approach still relies on auxiliary  frame to global frame or removing gravity from the raw IMU
+sensors, limiting its applicability in environments where such     data [8], [23], [26]. Our study reveals that these widely used
+sensors are unavailable or unreliable.                             representations, such as global coordinate frames, HACF, and
+                                                                   gravity-removed frames, limit the effectiveness of IMU feature
+B. Learning Inertial Odometry                                      extraction. Thus, this section proposes a different feature
+                                                                   representation and the corresponding state estimation design. It
+   Recent advances in deep learning have sparked research in       consists of three parts: feature representation analysis, attitude-
+data-driven methods for learning velocity and displacement         encoded network design, and a tightly coupled EKF system.
+from inertial data [8], [10], [17], [18]. Approaches such as
+IONet [17], A2DIO [19], and NILoc [18] formulate inertial
+navigation as a sequential task by predicting relative position
+QIU et al.: AIRIO: LEARNING INERTIAL ODOMETRY WITH ENHANCED IMU FEATURE OBSERVABILITY                                                                                                                                      3
+
+(a) Global-Frame Representation                                                  easier to estimate in (1), while (2) requires a more complex
+                                                                                 network structure for estimation.
+        Orientation
+
+     Body IMU          Global IMU       IMU                  Velocity            B. Representation Analysis
+                                     Encoder                Decoder
+
+(b) Body-Frame Representation (Ours)                      Uncertainty               We perform feature analysis to verify our intuition. Specif-
+                                                            Decoder              ically, we extract the latent features hi from the IMU feature
+     Body IMU                           IMU                                      encoder for the input under different representations in Fig. 2.
+                                     Encoder                Velocity             We conduct multiple feature analyses to assess their effective-
+                                                            Decoder              ness and representativeness.
+(c) AirIO Network (Ours)
+                                                          Uncertainty               Principal Component Analysis PCA is a statistical method
+     Integrator            Attitude                         Decoder              that reduces the dimensionality of a data set by replacing
+                           Encoder                                               correlated variables with a smaller set of uncorrelated prin-
+                                                            Velocity             cipal components. To analyze the expressivity of the input
+     Body IMU                 IMU                           Decoder              representation, we performed PCA on the feature latent space
+                           Encoder                        Uncertainty            for different input coordinates. We concatenate the latent
+                                                            Decoder              features from all samples to form a feature matrix and perform
+                                                                                 PCA on the latent feature matrix to analyze its underlying
+Fig. 2: (a) Existing learning IO usually transforms the IMU input to the global  structure by computing the singular value of the normalized
+coordinate using ground-truth orientation. (b) We found that preserving the      feature matrix in a numerically stable way. Each singular
+IMU data in the body coordinate, along with gravitational information, can       value represents the corresponding magnitude scaling of one
+significantly improve accuracy. (c) Our AirIO model leverages the body-frame     principal feature component. We then quantify the cumulative
+IMU and explicitly encodes the UAV's orientation to estimate the body-frame      explained variance (or the energy coverage) for the top k
+velocity.                                                                        principal components in PCA. Specifically, we evaluate on
+                                                                                 two datasets: the widely used UAV dataset Blackbird [27]
+A. IMU Coordinate Frame                                                          collected for agile autonomous flight, which covers large UAV
+                                                                                 maneuvers, and our custom simulation dataset Pegasus, which
+Canonical Body Coordinate Frame: The IMU accelerom-                              which was collected in the NVIDIA IssacSim simulator with
+                                                                                 Pegasus autopilot [28], featuring diverse maneuvers in an ideal
+eter measures the net force per unit mass acting on the sensor.                  environment without external disturbance, allowing us to work
+                                                                                 with cleaner data.
+Due to the measurement mechanism, it measures not only
+
+the  object  actual  accelerations   due      to  motion  B v  =       B Fneti
+                                                                          m
+
+in the sensor's local coordinate frame (usually aligned with
+
+object body frame), but also the constant acceleration due to
+
+Earth's gravity Gg directed toward the Earth's center. Thus,                     1.0                          Pegasus dataset                                           1.0          Blackbird dataset
+                                                                                                                                                                        0.9
+the accelerometer measurement at timestamp i as:                                 Explained Variance Ratio                                                               0.8                         Body-Frame
+                                                                                                                                                                        0.7                         Global-Frame
+                     B ai  =     B Fneti   + Ri G g,                                                     0.8                                                            0.6     N3umbe5r of P7rincip9al Co1m1pon1e3nts 15
+                                    m                                                                                                                                   0.5
+                                                                       (1)                                                                                              0.4
+
+                                                                                                         0.6                                                                 1
+
+where m is the object mass, and Ri  SO(3) is the rotation                                                0.4  Body-Frame
+for vector from body frame B to the global frame G. F (·)                                                     Global-Frame
+
+denotes quantity represented in frame F.                                                                      1 6 1N1um16be2r1o2f 6Pri3n1cip3a6l C4o1m4p6on5e1n5ts6 61
+
+   Global Coordinate Frame: Many existing methods trans-                         Fig. 3: The cumulative explained variance of the latent features for the
+                                                                                 Pegasus dataset (Left) and Blackbird dataset (Right). In both datasets, the
+form the IMU data from body frame B to HACF or global                            latent features derived from body frames (black line) require fewer principal
+frame G by applying an estimated transform rotation R^ i, e.g.                   components to achieve comparable total energy.
+
+                           R^ i  B  Fneti  + R^ iRi G g
+                                     m
+                 G ai  =                                               (2)
+
+The rotation R^ i can often be obtained by simple IMU preinte-                      Fig. 3 shows the cumulative energy coverage of the latent
+gration or the estimation results from an EKF, which is often                    feature derived from two different IMU input representations:
+accurate enough, such that R^ iRi  I.                                            global and body frames. The red and black curves represent
+                                                                                 the energy coverage of the top k principal components.
+   Notice that both (1) and (2) represents the same physical                     Specifically, for the Blackbird dataset, it shows that the top
+process. The key difference lies in how the attitude information                 k = 5 principal components in body-frame representation
+is coupled with different components: in (1), it is coupled                      already cover 95% of the total energy. In contrast, global-
+with the gravitational force, whereas in (2), it is coupled                      frame representation requires the top k = 8 principal compo-
+with the motion force. In (1), since the gravity acceleration                    nents to achieve the same level of energy. Similarly, in the
+Gg is a constant, the the motion force and attitude form a                       Pegasus datasets, the body-frame representation requires top
+linear combination. In contrast. in (2), the attitude couples                    k = 15 principal components and the global frame require
+with motion force in a nonlinear manner, with gravity acting                     top k = 40 principal components to cover 95% of the total
+as an additional constant that does not contribute extra useful                  energy. It clearly shows that models trained on the body
+information. Thus, the motion force and attitude are intuitively                 representation input can achieve comparable performance with
+4  IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. ACCEPTED JUNE, 2025
+
+                                                                                 legged robots with mainly yaw-dominant movement, UAVs
+                                                                                 often exhibit significant roll and pitch maneuvers, resulting in
+                                                                                 more pronounced impact of frame representation difference.
+
+                                                                                 C. AirIO Motion Network & Training
+
+Fig. 4: The ATE for body-frame and global-frame models at different model           Based on the previous analysis, we introduce a separate
+sizes on Pegasus dataset (Left) and Blackbird dataset (Right). The text denotes  encoding of the drone's attitude   so(3) to the motion
+the relative percentage increase in ATE.
+                                                                                 network beyond the IMU encoder with body-frame repre-
+fewer features, highlighting the efficiency and expressivity of
+this representation in capturing the essential features. It also                 sentation, shown in Fig. 2(c). After fusing this information,
+implies that models trained under body frame have better                         the network predicts the body-frame velocity Bv^ and the
+compressibility and can be designed more lightweight. Fig.                       corresponding uncertainty ^v. The motion network can be
+4 shows the comparison of the absolute translation error                         written as: (Bv^, ^v) = f(Bw, Ba, ).
+(ATE) for the models at different scales under both body and
+global frames. As the model size decreases, the prediction                          Inspired by [30], we map the drone's orientation to the so(3)
+performance for model under body-frame representation de-
+grades more smoothly and consistently yields lower errors. See                   Lie algebra space for compact and continuous representation
+Appendix. G for more studies on the model compressibility.
+                                                                                 of 3D rotations and smoother network gradient to mitigate
+   t-SNE [29] We also perform t-SNE on Pegasus dataset, a di-
+mensionality reduction approach that projects high-dimension                     numerical instability. We then leverage a CNN encoder to
+data into a low-dimensional map to analyze the feature                           encode so(3).
+representation qualitatively. As shown in Fig. 5, based on
+the network prediction (here is the velocity), we color code                        After concatenating the features from the attitude encoder
+each data point by the velocity magnitude from low to high.
+In the global frame, the points exhibit a highly entangled                       and the IMU encoder, we employ bi-directional GRU layers
+distribution and different velocity levels overlap, indicating                   to extract the latent feature hi and model the temporal de-
+poor separability and less representative encoding. In contrast,                 pendencies in the drone dynamics. We leverage this feature
+the feature distribution of the body coordinate frame is well-
+separated, where different velocity levels form more coherent                    to estimate the body-frame velocity and the corresponding
+clusters. This suggests that the body frame facilitates a more
+discriminative and effective representation of latent features.                  uncertainty by two MLP decoders.
+                                                                                    To jointly supervise the velocity and the corresponding
+Fig. 5: t-SNE analysis on Pegasus dataset with each point colored based on
+the velocity magnitude from low to high, represented by blue to red.             uncertainty Bv^i, we designed a combined loss function:
+
+   In summary, the analysis from Section. III-A and Section.                                              L = LHuber + LC ,                  (3)
+III-B indicates that i). Good prior information will help for
+the estimation since it couples with the motion force in a                        where the  = 1e-4. The LHuber is the Huber loss between
+linear or nonlinear manner, as shown in (1)(2). ii). The non-                    the predicted body-frame velocity Bvi and the body-frame
+linear coupling between the motion force and attitude in the                     ground-truth velocity Bv^i, defined as:
+global-frame representation complicates the estimation prob-
+lem. Body-frame representation proves to be more expressive                      LHuber =  1  (B      vi  -  B v^ i )2            if |Bvi - Bv^i| <  ,
+and discriminative, leading to a light network for prediction.                             2                                      otherwise
+Notice that while the analysis is indeed applicable to general
+robots via standard IMU equations, UAVs present a compelling                               ·          |B vi  -  B v^ i |  -  1                            (4)
+test case due to their agile motion. Unlike many mobile or                                                                   2
+
+                                                                                 where we set the  = 0.005.
+
+                                                                                 To supervise the uncertainty of the velocity, we employ an
+
+                                                                                 uncertainty loss inspired by [7], assuming that the estimated
+
+                                                                                 velocity uncertainty follows a Gaussian distribution:
+
+                                                                                 LC = (Bvi - Bv^i)^ vi -1(Bvi - Bv^i)T + ln(det ^ iv), (5)
+
+                                                                                 where   ^ vi is 3 ×  3 covariance matrix for the ith data. Similar
+                                                                                 to the  setting in   [7], we simplified the covariance as ^ iv =
+
+                                                                                 diag(^iv2), where ^iv is learned uncertainty from network.
+
+                                                                                 For orientation , we use the ground truth during training
+
+                                                                                 and replace it with EKF-estimated values during testing.
+
+                                                                                 D. Extended Kalman Filter
+
+                                                                                    Different from the existing IO methods [6], [7] which
+                                                                                 employ a motion network to capture relative translation and
+                                                                                 maintain historic states to optimize relative pose for state
+                                                                                 pairs. AirIO network models the body-frame velocity. As a
+                                                                                 result, we only need to constrain the velocity of the cur-
+                                                                                 rent frame. which significantly reduces the number of state
+                                                                                 parameters and alleviates the need for frame culling. This
+                                                                                 setup isolates the current state of the drone from the previous
+                                                                                 state, which simplifies the EKF structure. The full state of
+                                                                                 the filter is X = (Ri, Gvi, Gpi, bai , bgi ), where bai and
+QIU et al.: AIRIO: LEARNING INERTIAL ODOMETRY WITH ENHANCED IMU FEATURE OBSERVABILITY                                                      5
+
+Uncertainty                                                                 Filter Update The measurement update is as follows:
+Filtered IMU
+                                                                                          h(X) = R^ iT · vi = v^i + ^vi .
+                                                                                                                                       (10)
+
+ AirIMU        Velocity EKF             Velocity EKF                        where vi      is a random variable that follow      the Gaussian
+Network                                                                     distribution  N (0, ^ vi ) learned by the network.  The Jacobian
+
+                                                             ...            matrix H is computed as:
+
+                                                                                          Hvi       =  h(X)    =  R^ iT
+                                                                                                        vi
+IMU                                                                                                                                    (11)
+                                                                                                       h(X)
+              AirIO Network             AirIO Network                                     Hi        =   i      =  R^ Ti [vi]×
+
+ Raw IMU
+
+Fig. 6: AirIO system pipeline. A tightly coupled EKF that fuses the AirIO   Finally, the Kalman Gain and the update can be computed:
+motion network with a learning-based IMU preintegration network AirIMU.
+Instead of using constant uncertainty parameters, we employ learned uncer-         K = PHT (HPHT +^ iv)-1
+tainty ^v from the AirIO network and the learned gyroscope uncertainty ^g
+and accelerometer ^a from the AirIMU in our EKF system.                            X  X  (K(h(X) - v^i))                               (12)
+
+bgi are the bias of the accelerometer and the gyroscope                            P  (I - KH)P(I - KH)T + K^ ivKT
+respectively. Following the common setup of the error-based
+filtering method, we define the error-state of the current filter           Operator  denotes the additional operation except for the
+as X = (i, Gvi, Gpi, bai , bgi ). For the rotation error,                   orientation, where the update performs R  Exp() · R.
+we define i = logSO3(RiR^ -i 1)  so(3), where logSO3(·)
+denotes logarithm map operator.                                                                       IV. EXPERIMENT
+
+   AirIMU feature correction and uncertainty estimation                     A. Experiment Setup
+To filter the noise and, more importantly, quantify the uncer-
+tainty of the IMU pre-integration, we leverage AirIMU [30]                  Datasets We evaluate the proposed approach on two quadrotor
+to pre-process the raw IMU data. This model estimates the                   datasets: the real-world EuRoC dataset [31] and the challeng-
+corrections of the gyroscope and the accelerometer, and also                ing drone racing dataset Blackbird [27]. EuRoC datasets are
+the uncertainty of the IMU sensor:                                          a widely used benchmark for evaluating odometry. Blackbird
+                                                                            dataset is an indoor flight dataset, presenting more aggressive
+  (^ gi , ^ ai ) = g (wi, ai) , ^gi , ^ai =  (wi, ai) , (6)                 maneuvers and high-speed dynamics. For ablation studies, we
+                                                                            additionally include our custom simulated dataset collected
+where the  is the parameter of the neural network. The Air-                 using the NVIDIA IsaacSim simulator with Pegasus autopilot
+IMU network is trained by a differentiable IMU integrator and               [28]. The Pegasus dataset also presents diverse maneuvers but
+covariance propagator. We later filtered the IMU measurement                in the ideal environment without external disturbance, allowing
+by the predicted correction a^ = a + ^ ai , w^ = w + ^ gi . In the          us to work with cleaner data for ground-truth accuracy.
+EKF system, the learned uncertainty (^gi , ^ai ) is leveraged in            Baseline Several state-of-the-art methods are selected for
+the sensor covariance modeling.                                             comparison. For model-based IO, we include Baseline [13],
+                                                                            the IMU preintegration approach in raw IMU data, and Air-
+   Filter Propagation The kinematic motion model is:                        IMU [30], a hybrid method that corrects the raw IMU noise
+                                                                            with a data-driven method and integrates it with the IMU
+         Ri+1 = Ri · Exp(w^ i - bgi )t,                                     kinematic function. For learning-based IO, we compare against
+                                                                            an end-to-end trained model RoNIN [8] and an EKF-fused
+         vi+1 = vi + Ri(a^i - bai )t,                                       algorithm TLIO [7]. For learning-based IO methods designed
+                                                                            for UAVs, we evaluate IMO [6], a control signal-embedded
+         pi+1  =  pi  +  vit  +  1  t2  Ri  (a^i  -  bai ),       (7)       IO specifically developed for drone racing, which incorporates
+                                 2                                          additional thrust signals to better capture drone motion.
+                                                                            Evaluation Metrics We use the following metrics for evalu-
+         bai+1 = bai , bgi+1 = bgi ,                                        ation: 1) Absolute Translation Error (ATE, m): the average
+                                                                            Root Mean Squared Error (RMSE) between the estimated and
+Here, the Exp(·) denotes mapping from the log space to                      ground-truth positions over all time points:
+exponential space. The linearized propagation model is:
+
+               Xi+1 = Ai · Xi + Bi · ni,                          (8)
+
+where ni = [^gi , ^ai , bg , ba ]T . The ^gi , ^ai are the learned                                     1  N
+IMU uncertainty from the AirIMU network [30] with the i-th                                             N
+                                                                                          ATE =                pi - p^i22,             (13)
+frame. The bg , ba are the random walk uncertainty set as a
+constant across different frames. The corresponding covariance                                            i=1
+
+propagation of the state covariance Pi+1 follows:                           2) Relative Translation Error (RTE, m): the average RMSE
+                                                                            of the relative displacements over predefined time intervals.
+
+               Pi+1 = AiPiAi + BiWiBi                             (9)
+
+where the Wi is the covariance matrix of the i-th input,                    RTE =         1N        pi+t - pi - RiR^ Ti (p^i+t - p^i)  2
+                                                                                          N
+including the learned uncertainty of the IMU ^gi , ^ai and                                                                              ,
+sensor bias random walk bg , ba .                                                              i=1
+                                                                                                                                       2
+
+                                                                                                                                       (14)
+6                                                                    IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. ACCEPTED JUNE, 2025
+
+TABLE I: The ATE (Unit: m) and RTE (Unit: m) on the Blackbird dataset. Seen are sequences where the training and testing datasets are derived from the
+same trajectory. Unseen are those where the testing dataset includes sequences never used in training, demonstrating the model's generalizability.
+
+                        Seq.         Baseline          AirIMU        RoNIN         TLIO                   IMO           AirIO Net     AirIO EKF
+                                                                                                                                      ATE RTE
+                                     ATE RTE ATE RTE ATE RTE ATE RTE ATE RTE ATE RTE
+
+                Seen     Clover      15.769 2.027      6.163 0.294   3.074  1.367  1.464  0.797           0.381  0.681  0.434  0.368  0.367  0.391
+                           Egg       66.17 7.677       13.293 3.801  2.449  2.552  2.227  2.398           1.153  0.828  0.713  0.391  0.408  0.344
+                                     19.165 3.386      4.174 0.746   1.263  0.864  0.956  0.475           0.761  0.24   0.491  0.256  0.457  0.253
+                        halfMoon     20.49 4.556       4.347 1.933   3.15   3.266  0.68   0.784           2.13   3.066  0.442  0.401  0.477  0.341
+                           Star      15.781 2.395      7.445 0.743   1.031  1.089  0.616  0.755           0.219  0.206  0.348  0.147  0.307  0.164
+
+                         Winter
+
+                        Avg.         27.475 4.008 7.084 1.503 2.193 1.828 1.189 1.042 0.929 1.004 0.486 0.312                         0.403 0.299
+
+                        Ampersand    41.138 5.026      24.738 4.379  5.467 5.321 4.665    4.078           17.664 10.039 2.303  1.145  2.334  1.154
+                                     13.108 2.055      16.832 2.131  18.581 10.665 7.323  8.427           9.967 6.992 0.717    0.527  0.874  0.49
+                        Sid          15.365 2.4        8.312 1.553   20.399 12.12 1.276   1.045           5.67 2.863 0.976     0.583  0.828  0.54
+                                     3.429 2.713       2.828 2.024   11.537 7.762 2.005   2.408           5.629 5.395 1.145    1.008  1.178  1.033
+                Unseen   Oval        28.307 2.342      54.261 4.39   11.453 6.792 2.119   1.747           6.143 4.519 1.360    1.000  1.331  0.955
+                        Sphinx
+
+                        BentDice
+
+                        Avg.         20.269 2.907 21.403 2.896 13.487 8.532 3.478 3.541 9.015 5.962 1.300 0.853                       1.309 0.834
+
+                 Leverage thrust information as the input data for training and inference.
+                 Leverage ground truth orientation to transform the input data.  Dead-reckoning IMU pre-integration.
+
+Our evaluation adopts a 5-second interval configuration.                           Exceeds Plot Boundary                           Exceeds Plot Boundary
+   We define the improvement percentage as the relative re-
+                                                                                                                                                          Exceeds Plot Boundary
+duction in error compared to the baseline. Specifically, it is
+computed as the difference between the error of baseline and                                                                                                                Ground Truth
+the proposed method, divided by the baseline error.                                                                                                                         AirIO
+Training Details We use the Adam optimizer with an initial                                                                                                                  IMO
+learning rate of 0.001. A learning rate scheduler is imple-                                                                                                                 TLIO
+mented following the ReduceLROnPlateau, with a patience of                                                                                                                  RoNIN
+5 epochs and a decay factor of 0.2. The batch size is 128.                                                                                                                  Start Point
+Our training and testing window size is 1000 frames (equal                                                                                                                  End Points
+to 5 seconds in the EuRoC dataset). In the CNN encoder, we
+include a dropout layer with p = 0.5 to reduce overfitting.
+
+B. Results                                                                         Fig. 8: Trajectories of UNSEEN sequence sid from the Blackbird dataset
+                                                                                   by RoNIN, TLIO, IMO, and AirIO.
+   1) Evaluation on Blackbird Dataset: We employ the same
+sequences from Blackbird as used in IMO [6] and adopt their                        like the visual-inertial odometry on the drone racing data. For
+same train-test split configuration. We name these sequences as                    more details, please check Appendix. H.
+SEEN sequences because the training and testing data are from
+the same sequence. To evaluate generalization, we select five                         In addition, it is worth noting that AirIO demonstrates
+additional trajectories from BlackBird dataset as UNSEEN                           remarkable generalizability to unseen sequences, as shown
+sequences, which are excluded from the training set. More                          in Fig. 8. While other methods suffer from significant drift,
+details on separation are in Appendix. B1.                                         AirIO consistently maintains precise estimations. The baseline
+                                                                                   methods tend to overfit the training data, performing well
+   RoNIN                TLIO                    IMO                  AirIO         within the training distribution but failing to generalize to
+    ATE: 1.263           ATE: 0.956              ATE: 0.761           ATE: 0.457   UNSEEN data. Compared to IMO, AirIO shows a substantial
+                                                                                   improvement of 85.5% in ATE and 86.0% in RTE.
+   1 [m]                1 [m]                   1 [m]                1 [m]
+                                                                                      2) Evaluation on EuRoC Dataset: We then evaluate the
+                      Ground Truth Start Point         End Points                  proposed method on EuRoC dataset, as shown in Table. II.
+                                                                                   AirIO outperforms both RoNIN and TLIO by 52.9% and
+Fig. 7: Trajectories of SEEN sequence halfMoon from the Blackbird dataset.         54.4% in ATE, respectively. Thanks to effective uncertainty
+AirIO, relying solely on IMU, outperforms IMO by 30% in ATE.                       modeling, AirIO leverages uncertainties learned from both the
+                                                                                   IMU kinematic model and motion network, ensuring optimal
+   For the seen sequences, as shown in Table. I, RoNIN                             data fusion and improved performance. After integrating EKF,
+and TLIO fail to capture the aggressive drone maneuvers                            AirIO further improves accuracy, showing an average addi-
+as they are designed for pedestrian navigation with clear                          tional 17.4% improvement in ATE.
+slow motion patterns. AirIO significantly outperforms these
+baselines, improving by 66.1% in ATE and 71.3% in RTE over                            TABLE II: The ATE (Unit: m) and RTE (Unit: m) on EuRoC dataset.
+TLIO. Furthermore, AirIO exceeds IMO by 56.6% in ATE and
+70.2% in RTE relying solely on IMU measurement without                             Seq.                   RoNIN         TLIO          AirIO Net AirIO EKF
+integrating external thrust information. We also show that our
+algorithm can outperform the multi-sensor fusion algorithms                                               ATE RTE ATE RTE ATE RTE ATE RTE
+
+                                                                                   MH02                   5.902  2.121  7.281  2.451  4.917  0.936  2.478  0.987
+                                                                                   MH04                   8.586  4.542  8.626  5.498  2.726  1.093  2.308  1.005
+                                                                                   V103                   3.240  1.695  7.863  2.580  3.844  1.519  3.05   1.552
+                                                                                   V202                   7.445  2.303  6.260  2.783  4.823  1.303  4.206  1.313
+                                                                                   V101                   8.576  1.918  4.814  1.946  2.917  1.137  3.844  1.103
+
+                                                                                   Avg.                   6.75 2.516 6.969 3.052 3.846 1.198 3.177 1.192
+
+                                                                                    Leverage ground truth orientation to transform the input data for inference.
+QIU et al.: AIRIO: LEARNING INERTIAL ODOMETRY WITH ENHANCED IMU FEATURE OBSERVABILITY                                                                                                                7
+
+   3) Real time deployment and Analysis: We evaluate the                                              TABLE III: Ablation study on the EuRoC and Pegasus datasets comparing
+real-time performance of our algorithm on both an NVIDIA                                              different feature representations. Evaluation metric: ATE (Unit: m).
+Jetson Orin AGX and a desktop with a low-end RTX 2060
+GPU, using an IMU operating at 200 Hz. On Orin, AirIO                                                                Seq.   Global (2)        Body (1)    Global            Body      Body
+achieves an average runtime of 74.23 ms, while on the desktop,                                                                 -Gg Global     -RTi G g  +Attitude                  +Attitude
+it runs in 28.92 ms. These results indicate the feasibility of our                                                  MH02                                                    4.537
+algorithm for real drone deployment.                                                                  EuRoC         MH04    18.048    17.892   16.136    9.522              3.561   2.531
+                                                                                                                    V103    15.904    6.895    8.977     4.572              6.824   2.250
+                                                                                                                    V202    7.007     7.086    6.586     4.068              3.248   3.107
+                                                                                                                    V101    9.662     3.496    6.161     10.274             5.478   4.310
+                                                                                                                            8.142     15.11    7.082     7.117                      4.287
+                                                                                                                     Avg.
+                                                                                                                            11.753 10.096     8.988 7.110 4.730                     3.297
+                                                                                                                  TEST 1
+                        V. ABLATION STUDY                                                             Pegasus     TEST 2    22.115    9.689   9.534     6.151               5.225   3.418
+                                                                                                                  TEST 3    15.745    15.185  14.729    5.373               4.489   5.719
+   We perform an ablation study to investigate the impact                                                                   19.467    26.960  3.580     14.545              3.734   1.786
+of different feature representations. Experiments with the                                                           Avg.
+following input representation scenarios are conducted on the                                                               19.109    17.278  9.281     8.690               4.483   3.641
+real-world dataset EuRoC and the simulated dataset Pegasus.                                                      Ampersand
+                                                                                                      Blackbird      Sid    21.93     17.863  18.639    14.487              1.977   2.492
+   i. Body: The network takes body-frame IMU measurements                                                            Oval   11.866    7.915   5.686     2.307               1.108   0.651
+      defined in (1) as input.                                                                                              7.212     6.743   1.656     7.354               1.353   0.913
+                                                                                                                   Sphinx   3.327     3.572   2.117     2.784               1.266   1.163
+  ii. Global: The network takes global-frame IMU measure-                                                         BentDice            8.876   6.989     9.626               1.915   1.249
+      ments as input. The global-frame IMU is transformed                                                                    15.5
+      from raw IMU data, as defined in (2).                                                                          Avg.             8.994   7.018     7.312               1.524   1.294
+                                                                                                                            11.967
+ iii. Body + Attitude: Building upon i. , the drone orientation
+      is encoded as auxiliary inputs to the network.                                                  scenario i. achieves higher accuracy across all error thresholds
+                                                                                                      and reaches near-perfect accuracy much more quickly. These
+ iv. Global + Attitude: Building upon ii. , the drone orien-                                          results highlight the effectiveness of body-frame representation
+      tation is encoded as auxiliary inputs to the network.                                           which efficiently captures implicit attitude information of IMU
+                                                                                                      data. Simply encoding the body frame IMU features improves
+  v. Body ­ RiGg: Building upon i. , we consider the motion                                           the system performance.
+      acceleration by removing the rotation-coupled gravity
+      term RiGg from (1).                                                                             B. How Effective is the Attitude Encoding?
+
+ vi. Global ­ Gg: Building upon ii. , we consider the motion                                             As illustrated in Fig. 10, on the EuRoC dataset, iii. Body
+      acceleration by removing the gravity term Gg from (2).                                          + Attitude achieves a further 30.3% improvement over the
+                                                                                                      scenario i. , outperforming scenario ii. by 67.3% in ATE.
+To ensure a fair comparison, scenarios i. , iii. , and v. leverage                                    Additionally, we evaluate attitude encoding on global-frame
+ground-truth orientation to transform estimated velocity into                                         representation iv. Global + Attitude. This also yields an im-
+global frame.                                                                                         provement of approximately 29.6% over scenario ii. on EuRoC
+                                                                                                      dataset, validating the efficiency of encoding attitude informa-
+   Table. III shows the results of the ablation study for all                                         tion. Encoding the drone's attitude information enhances the
+variants. More results can be found in Appendix. F. From                                              network's ability for state estimation.
+these results, we address the following questions:
+
+1.0  EuRoC dataset                                                1.0  Pegasus dataset
+
+0.8                                                               0.8                                 Global Coordiante Frame         Body Coordiante Frame                 Attitude Encoding
+
+Accurate Rate                                                                                                             ATE: 6.895                     ATE: 3.561                      ATE: 2.250
+                                                   Accurate Rate                                                          RTE: 1.961                     RTE: 1.329                      RTE: 1.009
+
+0.6                                                               0.6
+
+0.4                                                               0.4
+
+0.2  body coordinate                                              0.2  body coordinate
+
+     global coordinate                                                 global coordinate
+0.00.0 0.5 1.0Positi1o.5n L2 n2o.0rm 2.5 3.0                      0.00 1 2 P3ositi4on L25norm6 7 8 9
+                                                                                                      5 [m]                           5 [m]                          5 [m]
+
+Fig. 9: Accuracy AUC of EuRoC dataset (Left) and Pegasus dataset (Right).                                                   Ground Truth      End Points
+
+A. How Effective is the Body-frame Representation?                                                    Fig. 10: Performance of MH_04_difficult in EuRoC dataset across
+                                                                                                      different representations. ii. Global (Left) is suboptimal. Using IMU data
+   Compared to ii. Global, i. Body demonstrates significantly                                         in i. Body (Center) improves significantly. Encoding UAV orientation iii.
+higher precision on the Pegasus. This new input representation                                        Body + Attitude (Right) further improves the performance.
+results in an average ATE improvement of 74.1%. Scenario i.
+on EuRoC dataset and Blackbird Unseen sequences exhibit                                               C. Shall We Keep Gravity in the Feature Representation?
+similar trends.
+                                                                                                         Many learning-based IO methods remove gravity from the
+   We further evaluate the system performance under two rep-                                          IMU encoding [26]. However, as discussed in Section. III-A,
+resentation using the Accuracy Area Under the Curve (AUC)                                             gravitational acceleration is a critical component for body-
+metric, which quantifies the performance across various error                                         frame representation as it explicitly embeds drone rotation
+thresholds. Specifically, we calculate the relative position error                                    through the term RiT Gg, as shown in 1. After removing
+over a 5-second interval. As shown in Fig. 9, on both datasets,                                       this rotation-coupled gravity term, scenario i. loses essential
+8  IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. ACCEPTED JUNE, 2025
+
+attitude information. Table. III demonstrates that v. Body ­                     [12] X. Teng, P. Xu, D. Guo, Y. Guo, R. Hu, H. Chai, and D. Chuxing,
+RiT Gg causes significant performance degradation: the ATE                             "Arpdr: An accurate and robust pedestrian dead reckoning system
+increases by 90.0% on EuRoC, 107.0% on Pegasus dataset,                                for indoor localization on handheld smartphones," in 2020 IEEE/RSJ
+and 360.5% on Blackbird's Unseen sequences.                                            International Conference on Intelligent Robots and Systems (IROS).
+                                                                                       IEEE, 2020, pp. 10 888­10 893.
+                VI. CONCLUSION & DISCUSSION
+                                                                                 [13] C. Forster, L. Carlone, F. Dellaert, and D. Scaramuzza, "Imu preinte-
+   In this work, we investigate an effective representation                            gration on manifold for efficient visual-inertial maximum-a-posteriori
+of learning-based IO for multirotor UAVs and propose a                                 estimation," in Robotics: Science and Systems XI, 2015.
+solution that relies solely on IMU data. We identify that the
+commonly used global-frame representation is less effective                      [14] K. Zhang, C. Jiang, J. Li, S. Yang, T. Ma, C. Xu, and F. Gao,
+for dynamic, agile maneuvers due to the less observable                                "Dido: Deep inertial quadrotor dynamical odometry," IEEE Robotics
+attitude information compared to IMU data represented in                               and Automation Letters, vol. 7, no. 4, pp. 9083­9090, 2022.
+body-frame. Based on this, we develop the AirIO system by
+explicitly encoding attitude information and integrating it with                 [15] T. Qin, P. Li, and S. Shen, "Vins-mono: A robust and versatile monocular
+an EKF. We show that our approach outperforms the state                                visual-inertial state estimator," IEEE transactions on robotics, vol. 34,
+of the art [6] in various scenarios and environments without                           no. 4, pp. 1004­1020, 2018.
+relying on additional sensors or control information. Our
+method achieves on average 66.7% improvement in accuracy.                        [16] J. Svacha, J. Paulos, G. Loianno, and V. Kumar, "Imu-based inertia
+Furthermore, explicitly encoding attitude information into the                         estimation for a quadrotor using newton-euler dynamics," IEEE Robotics
+motion network results in an additional 23.8% improvement.                             and Automation Letters, vol. 5, no. 3, pp. 3861­3867, 2020.
+We validate the real-time capability of AirIO on an NVIDIA
+Jetson AGX Orin. Future work includes deploying the system                       [17] C. Chen, X. Lu, A. Markham, and N. Trigoni, "Ionet: Learning to cure
+on real UAVs for closed-loop evaluation.                                               the curse of drift in inertial odometry," in Proceedings of the AAAI
+                                                                                       Conference on Artificial Intelligence, vol. 32, no. 1, 2018.
+                             REFERENCES
+                                                                                 [18] S. Herath, D. Caruso, C. Liu, Y. Chen, and Y. Furukawa, "Neural inertial
+ [1] S. Zhao, H. Zhang, P. Wang, L. Nogueira, and S. Scherer, "Super                   localization," in Proceedings of the IEEE/CVF Conference on Computer
+      odometry: Imu-centric lidar-visual-inertial estimator for challenging en-        Vision and Pattern Recognition, 2022, pp. 6604­6613.
+      vironments," in 2021 IEEE/RSJ International Conference on Intelligent
+      Robots and Systems (IROS). IEEE, 2021, pp. 8729­8736.                      [19] Y. Wang, H. Cheng, and M. Q.-H. Meng, "A2dio: Attention-driven deep
+                                                                                       inertial odometry for pedestrian localization based on 6d imu," in 2022
+ [2] Y. Hu, J. Geng, C. Wang, J. Keller, and S. Scherer, "Off-policy                   International Conference on Robotics and Automation (ICRA). IEEE,
+      evaluation with online adaptation for robot exploration in challenging           2022, pp. 819­825.
+      environments," IEEE Robotics and Automation Letters (RA-L), vol. 8,
+      no. 6, pp. 3780­3787, 2023.                                                [20] S. Sun, D. Melamed, and K. Kitani, "Idol: Inertial deep orientation-
+                                                                                       estimation and localization," in Proceedings of the AAAI Conference on
+ [3] X. Guo, G. He, J. Xu, M. Mousaei, J. Geng, S. Scherer, and G. Shi,                Artificial Intelligence, vol. 35, no. 7, 2021, pp. 6128­6137.
+      "Flying calligrapher: Contact-aware motion and force planning and
+      control for aerial manipulation," IEEE Robotics and Automation Letters,    [21] X. Deng, S. Wang, C. Shan, J. Lu, K. Jin, J. Li, and Y. Guo, "Data-
+      vol. 9, no. 12, pp. 11 194­11 201, 2024.                                         driven based cascading orientation and translation estimation for inertial
+                                                                                       navigation," in 2023 IEEE/RSJ International Conference on Intelligent
+ [4] S. Zhao, Y. Gao, T. Wu, D. Singh, R. Jiang, H. Sun, M. Sarawata, Y. Qiu,          Robots and Systems (IROS). IEEE, 2023, pp. 3381­3388.
+      W. Whittaker, I. Higgins, Y. Du, S. Su, C. Xu, J. Keller, J. Karhade,
+      L. Nogueira, S. Saha, J. Zhang, W. Wang, C. Wang, and S. Scherer,          [22] R. Buchanan, M. Camurri, F. Dellaert, and M. Fallon, "Learning inertial
+      "Subt-mrs dataset: Pushing slam towards all-weather environments,"               odometry for dynamic legged robot state estimation," in Conference on
+      in Proceedings of the IEEE/CVF Conference on Computer Vision and                 robot learning. PMLR, 2022, pp. 1575­1584.
+      Pattern Recognition (CVPR), June 2024, pp. 22 647­22 657.
+                                                                                 [23] X. Cao, C. Zhou, D. Zeng, and Y. Wang, "Rio: Rotation-equivariance
+ [5] Y. Qiu, C. Wang, W. Wang, M. Henein, and S. Scherer, "Airdos:                     supervised learning of robust inertial odometry," in Proceedings of the
+      Dynamic slam benefits from articulated objects," in 2022 International           IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+      Conference on Robotics and Automation (ICRA). IEEE, 2022, pp.                    2022, pp. 6614­6623.
+      8047­8053.
+                                                                                 [24] M. Brossard, A. Barrau, and S. Bonnabel, "Rins-w: Robust inertial nav-
+ [6] G. Cioffi, L. Bauersfeld, E. Kaufmann, and D. Scaramuzza, "Learned                igation system on wheels," in 2019 IEEE/RSJ International Conference
+      inertial odometry for autonomous drone racing," in IEEE Robotics and             on Intelligent Robots and Systems (IROS). IEEE, 2019, pp. 2068­2075.
+      Automation Letters (RA-L), 2023.
+                                                                                 [25] J. Steinbrener, C. Brommer, T. Jantos, A. Fornasier, and S. Weiss,
+ [7] W. Liu, D. Caruso, E. Ilg, J. Dong, A. I. Mourikis, K. Daniilidis,                "Improved state propagation through ai-based pre-processing and down-
+      V. Kumar, and J. Engel, "Tlio: Tight learned inertial odometry," IEEE            sampling of high-speed inertial data," in 2022 International Conference
+      Robotics and Automation Letters, vol. 5, no. 4, pp. 5653­5660, 2020.             on Robotics and Automation (ICRA). IEEE, 2022, pp. 6084­6090.
+
+ [8] S. Herath, H. Yan, and Y. Furukawa, "Ronin: Robust neural inertial          [26] A. Bajwa, C. C. Cossette, M. A. Shalaby, and J. R. Forbes, "Dive: Deep
+      navigation in the wild: Benchmark, evaluations, & new methods," in               inertial-only velocity aided estimation for quadrotors," IEEE Robotics
+      2020 IEEE international conference on robotics and automation (ICRA).            and Automation Letters, 2024.
+      IEEE, 2020, pp. 3146­3152.
+                                                                                 [27] A. Antonini, W. Guerra, V. Murali, T. Sayre-McCord, and S. Karaman,
+ [9] R. Buchanan, V. Agrawal, M. Camurri, F. Dellaert, and M. Fallon,                  "The blackbird dataset: A large-scale dataset for uav perception in ag-
+      "Deep imu bias inference for robust visual-inertial odometry with factor         gressive flight," in International Symposium on Experimental Robotics.
+      graphs," IEEE Robotics and Automation Letters, vol. 8, no. 1, pp. 41­48,         Springer, 2018, pp. 130­139.
+      2022.
+                                                                                 [28] M. Jacinto, J. Pinto, J. Patrikar, J. Keller, R. Cunha, S. Scherer, and
+[10] H. Yan, Q. Shan, and Y. Furukawa, "Ridi: Robust imu double integra-               A. Pascoal, "Pegasus simulator: An isaac sim framework for multiple
+      tion," in Proceedings of the European conference on computer vision              aerial vehicles simulation," in 2024 International Conference on Un-
+      (ECCV), 2018, pp. 621­636.                                                       manned Aircraft Systems (ICUAS), 2024, pp. 917­922.
+
+[11] S. Yang, Z. Zhang, B. Bokser, and Z. Manchester, "Multi-imu propri-         [29] L. Van der Maaten and G. Hinton, "Visualizing data using t-sne." Journal
+      oceptive odometry for legged robots," in 2023 IEEE/RSJ International             of machine learning research, vol. 9, no. 11, 2008.
+      Conference on Intelligent Robots and Systems (IROS). IEEE, 2023, pp.
+      774­779.                                                                   [30] Y. Qiu, C. Wang, C. Xu, Y. Chen, X. Zhou, Y. Xia, and S. Scherer,
+                                                                                       "Airimu: Learning uncertainty propagation for inertial odometry," 2023.
+
+                                                                                 [31] M. Burri, J. Nikolic, P. Gohl, T. Schneider, J. Rehder, S. Omari, M. W.
+                                                                                       Achtelik, and R. Siegwart, "The euroc micro aerial vehicle datasets,"
+                                                                                       The International Journal of Robotics Research, vol. 35, no. 10, pp.
+                                                                                       1157­1163, 2016.
+
+                                                                                 [32] P. Geneva, K. Eckenhoff, W. Lee, Y. Yang, and G. Huang, "Openvins:
+                                                                                       A research platform for visual-inertial estimation," in 2020 IEEE Inter-
+                                                                                       national Conference on Robotics and Automation (ICRA). IEEE, 2020,
+                                                                                       pp. 4666­4672.
+
+                                                                                 [33] Y. Peng, C. Chen, and G. Huang, "Quantized visual-inertial odometry,"
+                                                                                       in 2024 IEEE International Conference on Robotics and Automation
+                                                                                       (ICRA). IEEE, 2024, pp. 17 954­17 960.
+QIU et al.: AIRIO: LEARNING INERTIAL ODOMETRY WITH ENHANCED IMU FEATURE OBSERVABILITY                                                                                                                              9
+
+                               APPENDIX                                      comprehensive understanding of the model's robustness and
+                                                                             generalization capabilities.
+A. Real-Time Performance Analysis
+                                                                                2) Training and Testing Sequences Separation: In our
+   To assess the real-time performance of AirIO, we imple-                   experiments, we follow the same dataset-splitting strategy
+mented a first-in-first-out (FIFO) IMU buffer to store IMU                   presented in IMO: for each trajectory, the data is allocated
+measurements published at 200 Hz. In our setup, the buffer                   as 70% for training, 15% for validation, and the remaining
+size is set to 1000, corresponding to approximately 5 seconds                15% for testing. We use the SEEN sequences' training and
+of data. At each iteration, we input the entire buffer into                  validation set to train our model, making our training setup
+the AirIO and AirIMU networks, but only select the outputs                   identical to IMO's. For testing, we employ both the SEEN
+corresponding to the newly received (unseen) IMU frames.                     sequences' testing set and the UNSEEN sequences' testing
+After network inference, the learned velocity, IMU corrections,              set. The comprehensive testing setup allows us to evaluate our
+and associated covariances are passed to the EKF for fusion.                 method's generalization to new trajectories.
+Thus, the total inference time includes both the network
+computation and the EKF update.                                              TABLE V: Separation of trajectory sequences into SEEN and UNSEEN
+                                                                             categories, and their respective allocations to training, validation, and testing
+   Table. IV shows the comparison of real-time inference                     sets.
+time of our approach on different platforms. Overall, AirIO
+provides the state updates for 28.92 ms on low-end GPU and                             SEEN                             clover Egg                        halfMoon Star                     Winter
+74.23 ms on the Orin AGX, which is feasible for real drone
+deployment. We also notice that most of the inference time is                training (70%)                                                                                                   
+spent on processing the neural network of AirIO, which highly                                                                                                                                 
+depends on the IMU buffer size.                                              validation (15%)                                                                                                 
+
+TABLE IV: Average 1-run inference time (ms) on different platforms for       testing (15%)                                                                                                 BentDice
+EuRoC.                                                                                                                                                                                         
+                                                                                       UNSEEN                        Ampersand Sid                           Oval Sphinx                       
+                                                                                                                                                                                              
+                                                                             training (70%)                                                                                       
+
+                                                                             validation (15%)                                                                                     
+
+                                                                             testing (15%)                                                                                        
+
+Platform                  Host Machine             Jetson AGX Orin           C. Qualitative Evaluation for Blackbird dataset
+CPU                       Intel Core i9-12900K     12-core ARM Cortex-A78AE
+GPU                       NVIDIA RTX 2060 (6GB)    Ampere GPU                   We present more details on the evaluation of the Blackbird
+OS + Env                  Ubuntu 22.04, CUDA 12.6  JetPack 3.6               dataset. As shown in 11 and 12, we showcase seven additional
+Avg. Inference Time (ms)  28.92                    74.23                     trajectories that further highlight our method's performance.
+                                                                             Our method achieves superior performance in the SEEN
+B. BlackBird Dataset                                                         sequences. For more than half of these sequences, it outper-
+                                                                             forms existing methods that rely on additional information
+   The Blackbird unmanned aerial vehicle (UAV) dataset is                    in addition to IMU measurements, while our method uses
+an indoor dataset [27] designed to capture aggressive flight                 only IMU data. When evaluating UNSEEN sequences, our
+maneuvers for fully autonomous drone racing. It collects data                model outperforms all existing methods on all sequences,
+using a Blackbird quadrotor platform with an Xsens MTi-3                     demonstrating its remarkable adaptability.
+IMU. The blackbird takes place in a motion capture room
+and follows a predefined periodic trajectory, each lasting                             RoNIN                              TILO                               IMO                           AirIO
+approximately 3-4 minutes at high speed.
+                                                                              2                            2                                  3                                   3
+   1) Seen and Unseen sequences separation: In our experi-                    0
+ments, we define two distinct groups of trajectories: SEEN                    2                                                               2                                   2
+and UNSEEN sequences. SEEN sequences appear in both                           4
+the training and testing phases, while UNSEEN sequences                                                    0                                  1                                   1
+do not appear in any phase of the training process. Specif-                         4
+ically, for SEEN sequences, we use the same five sequences                                                                                    0                                   0
+that were used in IMO: clover, egg, halfMoon, star,                          15.0
+and winter, with peak velocities of 5, 8, 4, 5, 4m s-1,                      12.5      Start (GT)          2                Start (GT)        1                Start (GT)         1               Start (GT)
+respectively. Each trajectory is split into training, validation,            10.0                                           End (GT)          2                                                   End (GT)
+and testing sets. Since these trajectories appear in both the                 7.5      End (GT)            4                                                     End (GT)         2               End (Estimated)
+training and testing sets, we term them as SEEN sequences.                    5.0      End (Estimated)                      End (Estimated) 3                    End (Estimated)  3
+To further evaluate the model's ability to adapt to unseen                    2.5                                                                                                          2 AirIO0 2
+trajectories, we also select five additional trajectories from                0.0      20 2                             4 20 2                      4     2  IM0O 2 4                   4
+the Blackbird dataset: ampersand, sid, oval, sphinx,                                                                      TILO
+and bentDice, with peak velocities of 2, 5, 4, 4, 3m s-1,                          4    RoNIN                                                 15.0
+respectively. Compared to the SEEN sequences, these new                                                                                                                          15.0
+trajectories never appear in training or validation; therefore, we            4                                  15
+refer to them as UNSEEN sequences. By comparing results
+on both SEEN and UNSEEN sequences, we could gain a                            2                            10                                 12.5                               12.5
+
+                                                                              0        Start (GT)                         Start (GT)          10.0           Start (GT)          10.0      Start (GT)
+                                                                                                                          End (GT)                           End (GT)             7.5      End (GT)
+                                                                              2        End (GT)            5              End (Estimated)     7.5            End (Estimated)               End (Estimated)
+                                                                                       End (Estimated)                                        5.0                                 5.0
+                                                                              44
+                                                                                                           0                                  2.5                                 2.5
+                                                                              2
+                                                                              0                                                               0.0                                 0.0
+                                                                              2
+                                                                              4        20          2    4               4 20 2 4              2.5      4     2 0 2 44                      20     2                4
+
+                                                                                   4   RoNIN               4              TILO                4              IMO                  4        AirIO
+                                                                                       Start (GT)                           Start (GT)                         Start (GT)                      Start (GT)
+                                                                                       End (GT)                             End (GT)          3                End (GT)                        End (GT)
+                                                                                       End (Estimated) 2                    End (Estimated) 2                  End (Estimated) 2               End (Estimated)
+
+                                                                                                                                              1
+
+                                                                                                           0                                  0                                   0
+
+                                                                                                                                              1
+
+                                                                                                           2                                  2                                   2
+
+                                                                                                                                              3
+
+                                                                                       20 2 4                        4  20 2 4                      4     20 2                4         4  20 2 4
+                                                                                       RoNIN                              TILO
+                                                                                       Start (GT)                                                            IMO                  4          AirIO
+                                                                                       End (GT)
+                                                                                       End (Estimated)     3                                  4
+                                                                                                           2
+                                                                                                                                                                                     2
+                                                                                                           1              Start (GT)          2              Start (GT)              0     Start (GT)
+                                                                                                                          End (GT)                           End (GT)                2     End (GT)
+                                                                                                           0              End (Estimated)                    End (Estimated)     44        End (Estimated)
+                                                                                                                                              0
+                                                                                                           1
+
+                                                                                                           2                                  2
+
+                                                                                                                  3     20            2    4              20             2                 20               2
+                                                                                       20 2
+
+                                                                             Fig. 11: SEEN Sequences. From top to bottom: Clover, Egg, Winter and
+                                                                             Star. Our method demonstrates robust performance without requiring any
+                                                                             additional sensor information.
+10                                                                                                                            IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. ACCEPTED JUNE, 2025
+
+10.0       RoNIN                                            TILO                6              IMO                            AirIO                                                   3D Trajectory                                                  3D Trajectory
+ 7.5                Start (GT)                                                  4                                                                Start (GT)                           Start                                                          Start
+ 5.0                End (GT)         3                         Start (GT)       2                   Start (GT)          4                        End (GT)                             End                                                            End
+                    End (Estimated)  2                         End (GT)         0                   End (GT)                                     End (Estimated)
+                                                               End (Estimated)  2                   End (Estimated)                                                                             102012722...55.55                                                    1235555
+                                     1                                          4                                                                                                              0                                                                     5
+                                                                                6           5.0 IM2O.5 0.0 2.5          2                                                                   10                                                                   10
+2.5                                  0                                                                                                                                                    20                                                                   5
+                                                                                    7.5                                                                                                                                                                     0
+0.0                                  1                                                                                  0                                                                                        Y-axis                                   5
+                                     2                                                                                                                                                                                      Z-axis                     10
+2.5                                  3                                                                                2
+                                                                                                                           4                                                                                                                                      Y-axis
+5.0 15     10RoNIN5      0              2 0 TILO2                 4                                                           2AirIO0 2                                                                                                                                      Z-axis
+                                                                                                                     3
+                                     4                                                                               2        Start (GT)
+                                                                                                                     1        End (GT)
+0                                    3                                          2                                    0        End (Estimated)
+
+5                                                                               0                                                                                                                                  20 X0-axis20 40
+
+10                                   2  Start (GT)                                                                                                                  40 2X0-axis0
+                                        End (GT)
+15                                      End (Estimated)                         2
+                                     1
+20      Start (GT)                                                              4           Start (GT)                                                                            20
+
+25      End (GT)                     0                                                      End (GT)
+        End (Estimated)                                                         6           End (Estimated)          1
+30
+        2           0           2       3 2 10                                           6  4           2                  3.0 2.5 2.0 1.5 1.0                      (a) TEST 1: This trajectory covers a dis-      (b) TEST 2: This trajectory covers a dis-
+           RoNIN                                            TILO                            IMO                               AirIO                                                                                tance of 316.7m and a total duration of
+                                                Start (GT)                                  Start (GT)               5                           Start (GT)         tance of 558.6m and a total duration of        228.5s, with a peak speed of 4.6 m s-1,
+12.5                                 3          End (GT)                        6           End (GT)                                             End (GT)           253.2s, with a peak speed of 4.7 m s-1,        an average speed of 1.4 m s-1
+                                                End (Estimated)                                                      4                           End (Estimated)    an average speed of 2.2 m s-1
+10.0                                 2  20 2 4                                  4           End (Estimated)          3                                                                                               3D Trajectory
+                                                                                                                                                                                                                     Start
+7.5                 Start (GT)       1                                                                               2                                                                                               End
+5.0                 End (GT)
+                    End (Estimated)  0                                          2                                    1
+
+2.5                                  1                                          0                                    0
+
+0.0                                  2                                                                               1
+
+                                     3
+      7.5 5.0 2.5 0.0 2.5 5.0 4                                                          4 20 2 4                          4 20 2 4
+
+Fig. 12: UNSEEN Sequences. From top to bottom: bentDice, Oval, and                                                                                                                                                               7Y-axis
+Sphinx. Our method demonstrates remarkable adaptability to trajectories it                                                                                                                                                       5           Z-axis
+has never seen before.                                                                                                                                                                                                           3
+                                                                                                                                                                                                                                1
+D. Pegasus Dataset                                                                                                                                                                    20 0X-axis20 40                        10
+                                                                                                                                                                                                                           5
+   We collected a simulation dataset in the open-source Pe-                                                                                                                                                             0
+gasus Simulator [28] to evaluate our proposed method un-                                                                                                                                                              5
+der controlled conditions. Pegasus is a framework built on                                                                                                                                                         10
+top of NVIDIA Omniverse and Isaac Sim. It is designed
+for multirotor simulation and supports integration with PX4                                                                                                                           (c) TEST 3: This trajectory covers a dis-
+firmware, as well as Python control interfaces. In our setup,
+we used QGroundControl to control the multirotor and also                                                                                                                             tance of 402.1m and a total duration of
+employed the quadratic thrust curve and linear drag model,                                                                                                                            148.8s, with a peak speed of 4.9 m s-1,
+ensuring the generated flight dynamics closely resemble real-                                                                                                                         an average speed of 2.7 m s-1
+world conditions.
+                                                                                                                                                                                                Fig. 14: Testing set
+   In our experiment, we collected a total of seven trajectories
+datasets, named Pegasus Dataset. We divided the Pegasus                                                                                                             E. EuRoC Dataset
+dataset into training and testing sets. Specifically, four tra-
+jectories are selected for training and the remaining three                                                                                                            The EuRoC datasets are the well-known benchmarks
+trajectories are testing. They are illustrated in ?? and 14. We                                                                                                     for odometry and SLAM algorithms. They are col-
+provide a detailed overview of each trajectory as follows.                                                                                                          lected by a micro aerial vehicle: an AscTec Fire-
+                                                                                                                                                                    fly hex-rotor helicopter. There are 11 trajectories col-
+                                        3D Trajectory                                                                      3D Trajectory                            lected in two scenarios: an industrial environment and
+                                        Start                                                                              Start                                    a motion capture room. We selected MH_01_easy,
+                                        End                                                                                End                                      MH_03_medium, MH_05_difficult, V1_02_medium,
+                                                                                                                                                                    V2_01_easy, V2_03_difficult for training, and the
+                                                   1235555Y-axis                                                                         Y-axis              160    rest for testing.
+                                                    5                Z-axis                                                                         Z-axis   2
+                                                 20
+                                              10                                                                                                             2
+                                           0
+      20X-axi0s 20                      10                                         20 X0-axis20 40 60                                  10
+                                                                                                                                     5
+                                                                                                                                   0
+                                                                                                                                 5
+                                                                                                                              10
+
+(a) TRAIN 1: Distance 516.2m, Duration                                          (b) TRAIN 2: Distance 329.0m, Duration                                              groundtruth       AirIO (ours)                 RoNIN          TLIO
+254.7s, Peak 4.8, Avg. 2.0 m s-1.                                               165.8s, Peak 4.3, Avg. 2.0 m s-1.
+
+                          3D Trajectory                                                                                    3D Trajectory
+                          Start                                                                                            Start
+                          End                                                                                              End
+
+      20 X-ax0is 20                                      160Y-axis                 20 X0-axis20 40 60                                     1203000Y-axis
+                                                         2             Z-axis                                                     0 5 10                    Z-axis
+                                                         2                                                                       5
+                                                     5                                                                        10
+                                                  0
+                                               5                                                                                                                    Fig. 15: The MH 04 difficult trajectories from the EuRoC dataset visualized
+                                                                                                                                                                    within its 3D reconstruction map. While RoNIN (dark green) and TLIO (light
+                                     40 10                                                                                                                          green) fail, AirIO (red) retains a coherent trajectory shape.
+
+(c) TRAIN 3: Distance 263.5m, Duration (d) TRAIN 4: Distance 452.1m, Duration
+
+355.5s, Peak 4.6, Avg. 0.7 m s-1.                                               160.4s, Peak 4.9, Avg. 2.8 m s-1.
+
+                                     Fig. 13: Training trajectories (1­4).
+QIU et al.: AIRIO: LEARNING INERTIAL ODOMETRY WITH ENHANCED IMU FEATURE OBSERVABILITY                                                                                                               11
+
+F. Ablation Study in Pegasus and EuRoC dataset                                                         using vision-based approaches, which make feature tracking
+                                                                                                       challenging and degrade the performance of VIO systems.
+TABLE VI: Ablation study on the EuRoC and Pegasus datasets comparing
+different feature representations. Evaluation metric: RTE (Unit: m).                                   TABLE VIII: The ATE (Unit: m) and RTE (Unit: m) on the Blackbird dataset
+                                                                                                       and the EuRoC dataset. Seen are sequences where the training and testing
+     Seq.    Global            Global       Body Global                            Body        Body    datasets are derived from the same trajectory.
+            - gravity                     - gravity +Attitude                               +Attitude
+EuRoC
+   MH02                                                                                      0.972             Seq.    OpenVINS§ [32]  TLIO          IMO           AirIO Net AirIO EKF
+   MH04                                                                                      1.009
+    V103                                                                                     1.512     EuRoC           RTE ATE         RTE ATE RTE ATE RTE ATE RTE ATE
+    V202                                                                                     1.263           MH02
+    V101    1.684              1.575      2.346                   1.542            1.314     1.104           MH04      -  0.9          2.121  5.902  2.451  7.281  0.936              4.917  0.987  2.478
+    Avg.    2.618              1.961      2.525                   1.707            1.329     1.172            V103                     4.542  8.586  5.498  8.626  1.093              2.726  1.005  2.308
+            1.407              1.352      1.613                   1.485            1.623                      V202     - 1.36          1.695  3.24   2.58   7.863  1.519              3.844  1.552  3.05
+Pegasus     1.721              1.789      2.176                   1.723            1.373     1.017            V101                     2.303  7.445  2.783  6.26   1.303              4.823  1.313  4.206
+  TEST 1    1.801              1.991      1.463                   1.498            1.122     1.905                     - 1.68          1.918  8.576  1.946  4.814  1.137              2.917  1.103  3.844
+  TEST 2    1.846              1.734      2.025                   1.591            1.352     0.396            Avg.
+  TEST 3                                                                                     1.106                     - 1.24          2.516  6.75   3.052  6.969  1.198              3.846  1.192  3.177
+    Avg.
+                                                                                             1.185                     - 0.53
+Blackbird                                                                                    0.504
+Ampersand                                                                                    0.558                     - 1.14
+                                                                                             1.021
+     Sid                                                                                     0.871     BlackBird Seen
+    Oval                                                                                     0.828
+   Sphinx   2.783              2.971      2.134                   1.694            1.137               Clover          -  0.5          0.797  1.464  0.681  0.381  0.368              0.434  0.391  0.367
+  BentDice  2.704              3.007      1.961                   2.339            2.162                                               2.398  2.227  0.828  1.153  0.391              0.713  0.344  0.408
+    Avg.    3.274              3.350      1.298                   1.969            0.584               Egg             - 1.07          0.475  0.956  0.24   0.761  0.256              0.491  0.253  0.457
+            2.920              3.109      1.798                   2.001            1.294                                               0.784  0.68   3.066  2.13   0.401              0.442  0.341  0.477
+                                                                                                       halfMoon        - 0.37          0.755  0.616  0.206  0.219  0.147              0.348  0.164  0.307
+
+                                                                                                       Star            - 2.78                                                         0.486  0.299  0.403
+
+                                                                                                       Winter          - 0.12
+
+                                                                                                       Avg.            - 0.97          1.042 1.189 1.004 0.929 0.312
+
+            8.933              6.845      11.379                  8.374            1.254                Leverage ground truth orientation to transform the input data for inference.
+            7.768              6.151      3.575                   2.72             0.737               § Visual-Inertial Odometry (VIO) method.
+            4.154              3.936      1.094                   4.555            0.690
+            4.637              3.647      1.695                   2.875            0.888
+            6.998              5.587      5.427                   5.578            1.389
+            6.498              5.233      4.634                   4.82             0.992
+
+G. Ablation Study on Model Compression
+
+   To evaluate the compressibility of different representations,
+we introduced additional two lightweight models Light A and
+Light B. The light models keep the same layer structure but
+shrink the dimensions of each layer's hidden units. Finally, the
+encoder's latent feature dimension is reduced from 256 to 128,
+and then further to 64, yielding progressively smaller models.
+
+   To quantify the performance degradation as the model is
+compressed, we define the degradation ratio for ATE and
+RTE. A higher degradation ratio indicates a larger drop in
+performance. As shown in VII, the model under body frame
+shows smoother degradation in both ATE and RTE.
+
+TABLE VII: Ablation study on the Blackbird, Pegasus, and EuROC datasets
+comparing compressibility of models under body frame and global frame.
+Evaluation metric: ATE (Unit: m), RTE(Unit: m), and Degradation.
+
+                Model           Regular              Light A              Light B
+            Feature Size         256×1                128×1                64×1
+            Model Size         2.524 MB             0.641 MB
+                                                                         0.175 MB
+
+            Metrics            ATE     Degradation  ATE    Degradation  ATE    Degradation
+
+            Blackbird  Body    0.647         -      0.755     16.8%     0.931     44.0%
+                       Global  0.837         -      1.238     47.9%     1.522     81.8%
+
+            Pegasus    Body    4.670   -            10.118 116.6% 15.192 225.3%
+                       Global
+                               17.278  -            30.950 79.1% 69.236 300.7%
+
+            EuRoC      Body    4.730   -            5.447  15.2%        6.875  45.4%
+                       Global
+                               10.096  -            14.033 39.0% 38.236 278.7%
+
+            Metrics            RTE     Degradation  RTE    Degradation  RTE    Degradation
+
+            Blackbird  Body    0.345         -      0.454     31.3%     0.510     47.7%
+                       Global  0.525         -      0.583     11.0%     0.983     87.1%
+
+            Pegasus    Body    1.516   -            2.226  46.9%        2.203  45.3%
+                       Global
+                               3.109   -            3.422  10.0%        4.858  56.2%
+
+            EuRoC      Body    1.352   -            1.359  0.5%         1.297  -4.1%
+                       Global
+                               1.734   -            2.176  25.5%        4.468 157.8%
+
+H. Comparison with Visual Inertial Odometry
+
+   We have added the results of OpenVINS [32] as a reference.
+Specifically, we incorporate the quantitative results reported by
+IMO [6] for the BlackBird dataset and by QVIO [33] for the
+EuRoC dataset.
+
+   As shown in the Table. VIII, on the EuRoC dataset, the
+VIO system exhibits a significant advantage over IO methods
+due to the additional vision modality, achieving a 64.1%
+improvement in ATE. However, on the BlackBird dataset,
+our method achieves comparable performance across all se-
+quences. Notably, Blackbird dataset features peak velocities
+up to 8 m/s, leading to motion blur and large optical flows if
+

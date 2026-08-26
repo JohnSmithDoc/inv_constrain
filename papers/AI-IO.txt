@@ -1,0 +1,668 @@
+                                        AI-IO: An Aerodynamics-Inspired Real-Time Inertial Odometry for
+                                                                             Quadrotors
+
+                                                                Jiahao Cui, Feng Yu, Linzuo Zhang, Yu Hu, and Danping Zou
+
+                                           Abstract-- Inertial Odometry (IO) has gained attention in                              Turn off light
+                                        quadrotor applications due to its sole reliance on inertial
+                                        measurement units (IMUs), attributed to its lightweight design,                                               Ours         T265  AirIO
+                                        low cost, and robust performance across diverse environments.                                                Start         End   GT
+                                        However, most existing learning-based inertial odometry sys-
+                                        tems for quadrotors either use only IMU data or include                                                                                 15
+                                        additional dynamics-related inputs such as thrust, but still lack
+arXiv:2603.00597v1 [cs.RO] 28 Feb 2026  a principled formulation of the underlying physical model to                                              5                             10
+                                        be learned. This lack of interpretability hampers the model's
+                                        ability to generalize and often limits its accuracy. In this                                                                                                                   X [m]5
+                                        work, we approach the inertial odometry learning problem                                                  Z [m]
+                                        from a different perspective. Inspired by the aerodynamics
+                                        model and IMU measurement model, we identify the key phys-                                                                                                             0
+                                        ical quantity--rotor speed measurements required for inertial                                             0
+                                        odometry and design a transformer-based inertial odometry. By
+                                        incorporating rotor speed measurements, the proposed model                                                                                                             -5
+                                        improves velocity prediction accuracy by 36.9%. Furthermore,
+                                        the transformer architecture more effectively exploits temporal            120 lx 0.2 lx                     0             -5
+                                        dependencies for denoising and aerodynamic modeling, yielding
+                                        an additional 22.4% accuracy gain over previous results. To                                                         Y [m]
+                                        support evaluation, we also provide a real-world quadrotor
+                                        flight dataset capturing IMU measurements and rotor speed                  Fig. 1: Comparison of our realtime AI-IO with Intel T265's
+                                        for high-speed motion. Finally, combined with an uncertainty-              visual-inertial odometry (VIO) and AirIO. Our method
+                                        aware extended Kalman filter (EKF), our framework is vali-                 achieves comparable accuracy to VIO under normal lighting
+                                        dated across multiple datasets and real-time systems, demon-               and superior performance under dark conditions, demon-
+                                        strating superior accuracy, generalization, and real-time perfor-          strating stronger robustness to visual degradation, while also
+                                        mance. We share the code and data to promote further research              achieving higher accuracy than state-of-the-art AirIO.
+                                        (https://github.com/SJTU-ViSYS-team/AI-IO).
+                                                                                                                   such methods to quadrotor state estimation. Recent advances
+                                                               I. INTRODUCTION                                     in inertial odometry for quadrotors have focused on learning-
+                                                                                                                   based methods. These works typically employ neural net-
+                                           Low-cost IMUs are widely preferred for quadrotor state                  works to predict position offsets or velocity estimates, yet
+                                        estimation owing to their compact size, low power consump-                 they often fail to explicitly clarify the relationship between
+                                        tion, and robustness to environmental degradation. However,                network inputs and outputs. For example, IMO [3] uses thrust
+                                        achieving accurate inertial odometry with low-cost IMUs                    instead of acceleration, and AirIO [4] relies solely on IMU
+                                        remains a critical challenge due to their high noise and bias              data and attitude. Based on aerodynamic model analysis [5],
+                                        instability.                                                               [6], such input designs are inadequate, leading to incomplete
+                                                                                                                   observability in velocity estimation. The absence of a clear
+                                           Traditional inertial odometry, such as dead reckoning, suf-             input-output mapping constrains prediction accuracy and
+                                        fers from long-term drift caused by random noise and slowly                generalization performance of these networks. Furthermore,
+                                        varying biases in IMUs. Consequently, significant efforts                  most prior studies lack validation on real-world platforms.
+                                        have been made to improve the accuracy of inertial odometry
+                                        for specific domain applications. These methods typically                     In this work, we propose a novel perspective to explain
+                                        employ explicit motion priors or learned motion patterns                   and guide the design of quadrotor inertial odometry, along
+                                        to impose constraints on inertial odometry estimation, such                with a transformer-based velocity estimator. Our key insight
+                                        as zero velocity updates (ZUPT) for ground vehicles and                    is that augmenting IMU data with rotor speed enables
+                                        pedestrians [1], [2]. However, quadrotors are less constrained             the network to implicitly exploit the underlying quadrotor
+                                        in their motion patterns, making it challenging to generalize              aerodynamics, thereby improving the accuracy of inertial
+                                                                                                                   odometry. Building on this, we introduce a lightweight trans-
+                                           *These authors contributed equally to this work.                        former architecture--the first to be applied in quadrotor iner-
+                                           Corresponding author. All authors are with the Shanghai Key Laboratory  tial odometry--which achieves improved velocity prediction
+                                        of Navigation and Location-Based Services, Shanghai Jiao Tong Univer-      accuracy while maintaining real-time inference efficiency.
+                                        sity. This work was supported by National Key R&D Program of China         Extensive evaluations on both self-collected datasets and
+                                        (2022YFB3903802) and National Science Foundation of China (62073214).      real-world flight experiments demonstrate that the proposed
+                                          Emails:{csfalpha, yu-feng, zhanglinzuo,                                  framework consistently outperforms existing approaches in
+                                        henryhuyu, dpzou}@sjtu.edu.cn                                              terms of accuracy and generalization capability. In summary,
+                                                                                                                   our contributions are as follows:
+
+                                                                                                                      · We present an interpretable perspective that derives
+      from the quadrotor aerodynamic model, offering a          calculating induced velocity and to accurately capture the
+      physics-based explanation of estimation errors and vali-  aerodynamic forces and torques acting on a single rotor under
+      dating rotor speed as a critical measurement to enhance   a wide range of operating conditions. Building on dynamic
+      inertial odometry accuracy.                               modeling of quadrotors, Sartori et al. [5] and Wang et al. [6]
+   · Building on this perspective, we design the                use the drag model to improve the quadrotor state estimation.
+      Aerodynamics-Inspired Inertial Odometry (AI-
+      IO), a lightweight transformer-based velocity estimator      Although quadrotor aerodynamics and IMU observation
+      coupled with an uncertainty-aware EKF, enabling           model characterize the relationship between quadrotor body-
+      real-time, high-precision pose estimation.                frame velocity and IMU measurements, contemporary IO
+   · We establish a highly maneuverable quadrotor dataset       methods for quadrotors generally neglect aerodynamic drag
+      using our self-built platform, including IMU data, rotor  models as a critical component. DIDO [22] introduces a state
+      speed, and ground-truth poses and velocities, thereby     estimation framework that integrates quadrotor dynamics and
+      filling a critical gap in datasets for agile quadrotor    network observations in a two-stage EKF to jointly estimate
+      motions.                                                  IMU biases together with kinematic and dynamic states.
+                                                                IMO [3] employs collective thrust and gyroscope histories as
+                      II. RELATED WORK                          inputs to a temporal convolutional network (TCN) to regress
+                                                                displacements, implicitly capturing quadrotor dynamics, but
+A. Inertial Odometry                                            generalizing poorly to unseen trajectories due to its use of
+                                                                world-frame representation and the absence of acceleration
+   Traditional model-based IO methods rely on integrating       inputs. Wang et al. [23], DIVE [16], and AirIO [4] rely
+inertial measurements for state estimation, which is often un-  solely on IMU data for prediction, disregarding rotor aero-
+reliable because measurement errors and time-varying biases     dynamic drag in the quadrotor dynamics model [24]. As
+can cause significant accumulated drift in pose estimation.     the current state-of-the-art, AirIO makes an important step
+To mitigate the drift, IMUs are combined with exteroceptive     forward by adopting body-frame representation. However,
+sensors such as cameras [7] and LiDARs [8]. Although            it still overlooks rotor speed as a key physical variable in
+these algorithms achieve high accuracy, their dependence        velocity estimation, a limitation that our method explicitly
+on external sensors makes them vulnerable to disturbances       addresses. In addition, all of these methods are evaluated
+caused by agile motion or dynamic environments.                 on pre-collected datasets rather than deployed on resource-
+                                                                constrained quadrotor platforms for real-time tests.
+   With the development of deep learning, data-driven meth-
+ods have shown great potential for addressing noise and drift   III. METHODOLOGY
+in low-cost IMU data, as well as for learning velocity or
+displacement directly from IMU measurements. Considering        A. Aerodynamics for Velocity Estimation
+sensor errors, OriNet [9] employs a LSTM network to
+calibrate gyroscope data, thereby improving the accuracy           1) Notation: The reference frame W is a fixed world
+of inertial navigation. Similarly, Chen et al. [10] propose     coordinate system with its z-axis aligned with gravity. The
+a deep learning-based approach to suppress multiple error       quadrotor body frame and the IMU frame are denoted by
+sources in the sensor signals. Many other studies adopt a       B and I, respectively, and all frames follow the right-hand
+data-driven paradigm to estimate displacement or velocity       convention. For any vector x, the notation W x denotes
+directly from IMU data. For example, IONet [11], RoNIN          the representation of x in the W frame, with analogous
+[12] and RIDI [13] are end-to-end learning-based methods        notation applied to other frames. The position, velocity, and
+for pose estimation. Subsequent works integrate learned dis-    orientation of the body frame B with respect to the world
+placement or velocity into EKF frameworks [14], [15], [16]      frame W are denoted by W pW B  R3, W vBW  R3, and
+or batched optimization frameworks [17], aiming to build        RW B  R3×3, respectively. For brevity, these quantities are
+a more comprehensive state estimation pipeline. Recently,       hereafter denoted as p, v, and R when the reference and
+transformers have increasingly been adopted as the back-        target frames are clear from the context. Estimated and
+bone of IO networks due to their powerful global attention      measured quantities are distinguished using the symbols x^
+mechanism. CTIN [18] and iMoT [19] have demonstrated            and x~, respectively.
+the superiority of transformer-based IO architectures. Most
+of the aforementioned IO studies focus on pedestrian motion,       2) IMU Model: IMU measurements include the non-
+limiting their applicability to platforms with more demanding   gravitational force in inertial space and the angular velocity
+motion dynamics, such as quadrotors.                            of rigid frame given by:
+
+B. Inertial Odometry for Quadrotors                             I ~ = I  + I bg + ng                     (1)
+                                                                I a~ = I a + I ba - (RIW ) W g + na
+   Unlike pedestrian state estimation, quadrotors operate in
+six degrees of freedom in three-dimensional space, more         where I ~ and I a~ are the measurements of on-board gyro-
+complex motion patterns, and possess greater agility, mak-      scope and accelerometer, I  and I a are the ground-truth
+ing state estimation more challenging. The blade-element-
+momentum (BEM) theory [20], [21] combines blade-element         angular velocity and acceleration, ng and na are Guassian
+theory and momentum theory to alleviate the difficulty of       noise, and W g = [0, 0, -9.81] (m/s2) is the gravity vector,
+                                                                I bg and I ba are biases modeled as random walk processes
+
+                                                                with noise nbg and nba .
+Input Block                        Encoder Block                                Output Block          multi-frame data buffer for estimation [16], [22], [3], [4].
+                                                                                                      We attribute this to the use of historical data buffer, which
+acc             CNN  Positional                   TransformerLayer               Predict        !!    aids in better estimating IMU noise and better aerodynamics
+                     encoding       TransformerLayer                            Decoder               modeling. In recent years, transformer networks have demon-
+                                                                                                      strated superior denoising capabilities across various modal
+gyro            CNN                                                      ...                          data [25], [26], [27], so we integrate a transformer network
+                                                                                                      with our input and output blocks to process historical data
+rpm             CNN  (10, t)                                                    Covariation     !"#   buffer, as shown in Fig. 2.
+                                                                                  Decoder
+                                                                                                         Directly feeding raw noisy data into the encoder may
+Empirical Norm                                                                                        fail to capture the complex relationships between individual
+                                                                                                      feature dimensions. Therefore, we employ CNNs to process
+Fig. 2: Proposed transformer-based architecture: Verified                                             raw sensor data sequences. We posit that applying multiple
+measurements are normalized, encoded, and fed into a trans-                                           temporal convolutions acts as a low-pass filter, removing
+former to capture spatiotemporal dependencies. Finally, two                                           specific high-frequency noise [28]. Furthermore, the local
+fully connected decoders predict velocity and uncertainty.                                            inductive bias inherent in CNNs aligns with the local correla-
+                                                                                                      tion characteristics of IMU data, enabling effective extraction
+   3) Quadrotor Aerodynamics: A quadrotor has four pro-                                               of local features [29]. Note that the rotor speed values
+pellers fixed in a rigid body symmetrically, with one pair                                            are often much larger than other measurements; thus, we
+of propellers rotating counter-clock-wise and the other pair                                          normalize the mean and variance of rotor speeds online
+clock-wise. To reveal the relationship between accelerom-                                             using empirical values to align with the standard normal
+eter measurements and quadrotor velocity, we model the                                                distribution and enhance training stability.
+observation equation (1) of IMU sensor combined with
+aerodynamics of quadrotor following [5], [6] as follows:                                                 After fusion with position encoding, the processed features
+                                                                                                      is fed into a transformer for temporal feature extraction and
+                =    -xm2 vx        -k1vx - k2vx2 + bax                         + nax ,               aerodynamics modeling. Unlike the original transformer, we
+      a~x                                                                                             eliminate the attention mechanism in its decoder and directly
+                                                                                                      employ two fully connected layers to process the encoder's
+                                                                                                      temporal features of the last moment. These fully connected
+                                                                                                      layers independently generate the predicted velocity and
+                                                                                                      uncertainty of the last frame, enabling lightweight and real-
+                     induced drag air drag                                      noise                 time inference.
+
+                                                                                                         To supervise the velocity prediction and uncertainty esti-
+                                                                                                      mation of the last frame, we adopt two loss functions [14],
+                                                                                                      [30]:
+      
+
+        a~y = -ym2 vy - k3vy - k4vy2 + bay + nay , (2)
+
+                     4m2           -k5vz - k6vz2 + baz + naz
+      a~z =
+      
+
+      
+
+      
+
+                     total thrust
+
+where wm2 =          4    i2  ,  i  denotes                         the  rotor  speed  of  the  i-th
+                     i=1
+
+                       4
+
+rotor. ki, i=1,2,...,6, j, j={x,y}, and  are approximately
+
+constant parameters depend on material, structure of pro-
+
+pellers and airframe, and air density. Note that aerodynamic
+
+forces depend on the relative airflow velocity rather than the
+
+body-frame velocity. However, since we consider windless
+
+conditions in this work, the two are equivalent and the                                               LV =  1  (B  vi  -B  v^i)2,             if |Bvi -B v^i| < ,
+                                                                                                            2
+above formulation is valid. Further considering the effect                                                        (|B vi  -B           1
+                                                                                                               ·              v^i|  -  2  ),  otherwise
+
+of the non-inertial frame, the Coriolis acceleration term                                             LC = Bvi -B v^i  ^ -i 1 Bvi -B v^i + ln det ^ i
+
+ac = -2 × v is added to (2) to compensate for quadrotor's
+
+rotation, which explains why angular velocity is required as                                                                                                       (3)
+
+one of the observations for network inputs.                                                           where the LV is the Huber loss between the ground-truth
+                                                                                                      velocity Bvi and the predicted velocity Bv^i for the i-th
+4) Rotor Speed: According to (2), if the environment
+
+and quadrotor body properties remain constant over a short                                            data inputs, the LC is the negative-log-likelihood (NLL)
+                                                                                                      loss used for uncertainty supervision, ^ i = diag(^i) is the
+time horizon and noise is neglected, IMU measurements
+
+and body velocity are mutually derivable under our modeled                                            predicted uncertainty in the form of covariance matrix with
+
+aerodynamics when other observations (e.g., rotor speeds)                                             only diagonal values ^i output by the decoder. Once the
+
+are available. Therefore, assuming that the network can                                               velocity prediction loss has converged, training proceeds with
+
+model the aerodynamics from temporal observations (i.e.,                                              the NLL loss term as suggested by [16].
+
+coefficients such as ki=1,2,...,6, j=x,y and  in (2)), beyond                                         C. Dataset Preparation
+
+the acceleration and angular velocity measured by IMU,                                                   Among the currently available quadrotor datasets, only the
+                                                                                                      Blackbird [31], VID [32], and DIDO [22] datasets include
+we argue that introducing rotor speeds as inputs to ensure                                            rotor speeds. However, the flight trajectories in the Blackbird
+                                                                                                      are overly repetitive, limiting network generalization. The
+observability of the estimator is critical to enhancing velocity                                      VID and DIDO primarily contain non-aggressive flight data
+                                                                                                      with relatively low speeds. To meet the requirements of this
+estimation accuracy--a claim validated by subsequent exper-                                           study for high-aggressiveness flight data with rotor speed, we
+                                                                                                      equip a quadrotor as a data acquisition platform (shown in
+iments. This property forms the basis of our method.                                                  Fig. 3) and collect a large amount of high-speed flight data.
+
+B. Network Design & Training
+
+   Although the proposed equation (2) indicates a single-
+frame correspondence between IMU measurements and
+quadrotor speed, prior studies have employed historical
+             Radxa Zero3W                             Vicon Track  STM32F722+BMI270            where t denotes the integration interval. The linearized
+                                         "     " Marker               +ESC BL32 50A            error-state and covariance propagation are modeled as:
+
+!                                                                                                               Xi+1 = Ai · Xi + Bi · ni                            (5)
+
+         !                                                                                               Pi+1 = Ai · Pi · Ai + Bi · Wi · Bi,                        (6)
+
+    !                                                                                          where ni = [nai , ngi , nbai , nbgi ] represents sensor noise
+                                "                                                              and bias noise, Wi is the propagation noise matrix.
+
+                                                                           SpeedyBee F7 V3        3) Measurement Update: The observation model based
+
+           TMOTOR F2004                                                                        on velocity in B is:
+
+Fig. 3: Hardware setup which assembles a low-cost BMI270                                                     BvBW = h(X) = (RbW ) · W vBW                           (7)
+IMU for acceleration and angular velocity and ESCs using
+bidirectional Dshot for rotor speed.                                                           where nv denotes zero-mean Gaussian noise on the pre-
+                                                                                               dictions of the network, with its covariance also provided
+                                                                                               by the network. Linearizing (7), the Jacobian matrix H is
+                                                                                               straightforward to compute, with all entries zero except
+
+The quadrotor is built on a SpeedyBee1 Bee35 chassis with                                                       H     =   h(X)         =  R^ v^×,
+an F7 V3 Stack flight controller. IMU data is obtained from                                                                
+the BMI2702 sensor, rotor speed is recorded via telemetry                                                                                                           (8)
+feedback from the electronic speed controller, and the ground                                                             h(X)
+truth is provided by a VICON3 system.                                                                           Hv    =    v           =  R^ 
+
+   To capture flight data with a diverse range of speeds, we                                   where × denotes the skew-symmetric matrix of vector .
+manually control the quadrotor to fly at three levels: low,                                       Finally, H are used to compute the Kalman gain to update
+medium, and high, with maximum speeds of approximately
+5m/s, 8m/s, and 14m/s, respectively. Four sequences are                                        the state X and the covariance P as follows:
+recorded for each speed, resulting in a total of 12 sequences,
+covering a flight distance of 6,704m and a duration of 1,960s.                                 K = P · H · (H · P · H + )-1
+In addition, we collect low-speed data (below 3 m/s) from                                      
+autonomous flights. These include planar circular and figure-                                  
+eight patterns, non-planar circular and figure-eight patterns,
+and random flight trajectories. Two sequences are recorded                                       X  X + K · (Bv~ - R^  · v^)
+for each type, yielding a total of 10 sequences, covering a
+flight distance of 563m and a duration of 676s.                                                  P       (I  -  K  ·  H)  ·  P  ·  (I  -  K  ·  H)-1  +  K  ·    ·  K
+                                                                                               
+
+                                                                                                                                                                    (9)
+
+                                                                                               where  is the measurement covariance provided by the
+
+                                                                                               network.
+
+                                                                                               During filter initialization, the insufficient data length
+
+                                                                                               prevents network inference, restricting the system to inertial
+
+                                                                                               propagation. Once sufficient data accumulates, the network
+
+D. Extended Kalman Filter                                                                      performs inference according to the filter update frequency
+
+   1) System State: Our EKF builds upon the framework                                          to provide body-frame velocity estimates.
+
+established in [4]. The state at time i is defined as Xi =                                                   IV. EXPERIMENTAL RESULTS
+{R^ i, v^i, p^i, b^ai , b^gi }. Following the error-state formulation
+in [33], the corresponding error-state vector is defined as                                       We evaluate our method on two quadrotor datasets: the
+                                                                                               relatively low-speed DIDO [22] dataset and our own cus-
+Xi = {i, vi, pi, bai , bgi }. For Euclidean vector                                             tomized aggressive high-speed dataset. Both datasets provide
+variables x  R3, the error vector is given by x = x - x^.                                      rotor speed measurements, enabling us to verify the effective-
+For rotational components, the minimal error   R3 is                                           ness of the proposed algorithm under different maneuvering
+obtained via the logarithmic map  = Log(R · R^ -1) whose                                       conditions. We compare our system with the following
+                                                                                               baselines:
+inverse is given by the exponential map Exp().
+                                                                                                  · IMU preintegration [34]. A model-based method that
+   2) State Propagation: We propagate the state using high-                                          pre-integrates the IMU measurements on the SO(3)
+                                                                                                     manifold and simultaneously efficiently corrects the
+frequency IMU measurements via:                                                                      IMU bias estimate online.
+
+  R^ i+1  =  R^ i  ·  Exp(~ i               -  b^gi )  ·  t                                       · IMO [3]. A learning-based inertial odometry approach
+                                                                                                     that embeds control signals specifically designed for
+                                                                                                     drone racing, with high positioning accuracy on a fixed
+                                                                                                     track trajectory.
+
+  v^i+1   =  v^i   +  Wg      ·  t          +  R^ i    ·  (a~i  -  b^ai )  ·  t                   · AirIO [4]. The current state-of-the-art learning-based
+                                                                                                     inertial odometry algorithm for quadrotors, which val-
+                                                                                                     idates the effectiveness of predicting body velocity
+                                                                                                     directly from IMU data.
+
+  p^ i+1  =  p^ i  +  v^i  ·  t             +  1  ·  [W g  +    R^ i(a~i   -  b^ai )]  ·  t2
+                                               2
+
+
+
+
+b^ai+1 = b^ai , b^gi+1 = b^gi
+
+                                                                                          (4)
+
+1https://www.speedybee.com/
+2https://www.mouser.sg/new/bosch/bosch-sensortec-bmi270/
+3https://www.vicon.com/
+a Ablations on various modules     b Online inference vs offline inference                                                           2) Online inference vs offline inference: Although offline
+                                                                                                                                  inference is not practically applicable in real-world scenarios,
+0.7                                  0.9                                                                                          due to AirIO's excellent offline inference performance [4],
+                                                                                                                                  we conduct a comprehensive comparison and analysis of ve-
+Velocity Error (m/s)0.55                                                                   0.7                                    locity prediction errors between offline and online inference.
+                                                                     Velocity Error (m/s)
+0.4                                                                                        0.5                                       The key distinction between online and offline inference
+                                                                                                                                  lies in how the sliding window is updated: online inference
+0.25                                                                                       0.3                                    shifts the window by one time step, while offline inference
+                                                                                                                                  shifts the entire window. Additionally, the supervised signals
+0.1                                                                                        0.1                                    for both methods are derived from either the velocity at the
+                                                                                                                                  window's end (online) or the velocities at multiple time steps
+      manual manual updown updown                                                               manual manual updown updown       within the window (offline). To validate this, we set the
+                                                                                                                                  window length to 1 second. Fig. 4 (b) shows that offline
+      high  low  eight circle                                                                   high  low  eight circle           inference achieves lower average velocity prediction error
+                                                                                                                                  on its trajectory. This improvement stems from the denser
+ours w/ TCN w/o CNN w/o rotor                                                              AI-IO off AI-IO on AirIO off AirIO on  supervision signals within the full window and its use of
+                                                                                                                                  global window updates, with the effect being particularly
+Fig. 4: (a) Ablation results for each module on the test                                                                          pronounced on AI-IO. In order to fully compare the accu-
+dataset. (b) Comparison of online and offline inference                                                                           racy of real-time processing, the subsequent comparisons on
+results between AI-IO and AirIO with a window length set                                                                          datasets all use a 1-second window for online inference.
+to 1 second.
+                                                                                                                                  C. Comparison on Datasets
+Among these methods, IMU preintegration represents the
+model-based approach, while IMO and AirIO are represen-                                                                              1) DIDO Dataset: We evaluate our method AI-IO and
+tative learning-based methods for quadrotors.                                                                                     the state-of-the-art method AirIO on the DIDO dataset. We
+                                                                                                                                  use all random flight data starting with "v" for training, and
+A. Metrics Definitions                                                                                                            perform validation and testing on other periodic flight data
+                                                                                                                                  and random flight data.
+   To assess the performance of our system, we adopt two
+widely used metrics to quantify the localization performance                                                                         Table I shows the evaluation results on 5 types of se-
+[12], [14], [4]: Absolute Translation Error (ATE, m) com-                                                                         quences. The results of each type of sequence are the average
+putes the Root Mean Squared Error (RMSE) between the es-                                                                          of multiple sequences. AirIO Net and AI-IO Net use the
+timated and ground-truth velocities over all time points, and                                                                     real attitude information to convert the network output from
+Relative Translation Error (RTE, m) computes the RMSE                                                                             body frame to world frame, and then directly integrate
+of the relative velocities over predefined time intervals. In                                                                     to obtain the position, while AirIO EKF and AI-IO EKF
+our experiments, we adopt a 5-second interval. Similar to                                                                         use attitude estimates instead of the true attitude. Because
+position, we use Absolute Velocity Error (AVE, m/s) and                                                                           observation updates rely on body-frame velocity, errors in
+Relative Velocity Error (RVE, m/s) to evaluate the accuracy                                                                       attitude estimates, particularly those introduced by low-cost
+of the velocity estimation.                                                                                                       IMUs such as the BMI270 we employed, can propagate to
+                                                                                                                                  velocity updates and subsequently degrade position accuracy.
+B. Ablation Studies                                                                                                               Therefore, AI-IO EKF decreases 12.1% and 47.0% in AVE
+                                                                                                                                  and ATE respectively compared to AI-IO Net. Since AirIO
+   1) Ablations on each module: We conduct a series of ab-                                                                        uses attitude as inputs, it introduces larger errors when the
+lation experiments to analyze the effects of different compo-                                                                     attitude estimation is inaccurate, resulting in a 109.6% and
+nents on the network, with a focus on assessing the influence                                                                     52.9% decrease in AVE and ATE, respectively. Overall, AI-
+of key observed values from rotor speed measurements. All                                                                         IO Net improves AVE and ATE by 41.3% and 32.5% re-
+experiments are performed using our self-collected dataset,                                                                       spectively compared to AirIO Net, and AI-IO EKF improves
+with results presented in the Fig. 4 (a):                                                                                         AVE and ATE by 68.6% and 35.1% respectively compared
+                                                                                                                                  to AirIO EKF.
+   · Model Backbone: Compared with TCN, using trans-
+      former as the network backbone reduces the average                                                                             2) Our Dataset: In order to fully verify the generalization
+      body-frame velocity prediction error on the test set by                                                                     of AI-IO across different speed distributions and different
+      22.4%. We attribute this reduction to transformer's en-                                                                     flight trajectories, we use our own collected data for training
+      hanced ability to model temporal dependencies, such as                                                                      and evaluation. All manual flight data sequences are divided
+      estimating biases and capturing aerodynamic parameters                                                                      into training, validation, and testing data sets according to
+      from historical observations.                                                                                               the ratio of 7:1.5:1.5, and all non-manual flight data are
+                                                                                                                                  divided into the testing set. To avoid the influence of the filter
+   · Feature Extractor: Placing CNN before the trans-                                                                             parameter settings, the results of the unfiltered inference of
+      former backbone enables denoising and feature extrac-                                                                       AirIO and AI-IO are compared here. IMO's network output
+      tion, leading to a 23.9% reduction in the network's aver-                                                                   is a displacement within a window, which makes it difficult
+      age velocity prediction error. This effect is particularly
+      obvious on high-speed trajectories with higher noise.
+
+   · Rotor Speed: As with the aerodynamic modeling dis-
+      cussed in (2), introducing rotor speed measurements en-
+      sures the system's observability. Therefore, we compare
+      velocity predictions without rotor speeds and observe
+      a 36.9% reduction in velocity prediction error. This
+      experimental result provides a better explanation for
+      neural network learning.
+         TABLE I: Comparison on DIDO datasets. The best and second best results are bold and underlined respectively.
+
+         Sequence                     AirIO Net1                                   AI-IO Net1                              AirIO EKF                                                 AI-IO EKF
+
+                        AVE RVE ATE RTE AVE RVE ATE RTE AVE RVE ATE RTE AVE RVE ATE RTE
+
+         circle         0.588         0.647  4.827       1.146          0.327      0.364        2.588      0.724    1.129  1.229  6.600  2.150                          0.385        0.432         3.333      0.915
+         updown circle  0.563         0.742  4.999       1.153          0.321      0.403        3.608      0.836    1.960  1.126  6.085  1.806                          0.355        0.427         5.319      1.158
+         eight          0.506         0.733  2.610       1.252          0.321      0.392        1.448      0.684    0.870  1.239  5.417  2.442                          0.396        0.532         2.833      1.105
+         updown eight   0.639         0.940  3.535       1.517          0.407      0.474        1.750      0.753    1.057  1.443  6.194  2.766                          0.431        0.593         2.419      1.167
+         random         0.522         0.772  3.553       1.294          0.278      0.363        3.788      0.721    0.895  1.366  5.564  2.408                          0.287        0.342         5.474      0.975
+
+         Average        0.564 0.767 3.905 1.272 0.331 0.399 2.636 0.744 1.182 1.281 5.972 2.314 0.371 0.465 3.876 0.903
+
+         1 leverage ground truth orientation to transform the net output to world frame for inference.
+
+                               AI-IO         AirIO       Ground truth                                                             AI-IO                     AirIO                    Ground truth
+
+! [m/s]     0                                                                                              ! [m/s]      1                                   Z [m]       2
+         -10                                                                                                            0                                               1
+          2.5                                                                                   8                      -1                                               0
+          0.0                                                                                                                                                           -1
+" [m/s]  -2.5                                                                                   6          " [m/s]      1                                               -2
+                                                                                                4                       0                                               -3
+            2                                                                                                          -1                                               -4
+            0                                                                                   2   Z [m]
+                                                                                                0                    0.25                                                 4
+                0.0                                                                                                  0.00
+                                             -16                                                -2                  -0.25                                                 3
+                                               -14                                                                  -0.50                                                   2
+                                                                                                -4                                                                 Y [m]     1
+                                                                                                                            0.0 2.5 5.0 7.5 10.0 12.5 15.0
+# [m/s]                                             -12                                         -6                                          Time (s)                           0
+
+                                             X [m]  -10                                   6  8             # [m/s]                                                             -1
+                                                       -8
+                                                          -6                -2  0   24                                                                                           -2                              2
+                                                            -4                     Y [m]
+                                                                -2  -6  -4                                                                                                                             -1 0   1
+                                                                                                                                                                                                       X [m]
+                     2.5 5.0 7.5 10.0                                                                                                                                                    -3        -2
+
+                     Time (s)                                                                                                                                                        -4
+
+Fig. 5: Comparison of estimated velocity and trajectory in a                                               Fig. 6: Comparison of estimated velocity and trajectory in a
+manual high sequence, with the maximum speed exceeding                                                     updown circle sequence, the maximum speed doesn't exceed
+10m/s. The ATEs of AI-IO and AirIO are 0.860 and 1.762                                                     2m/s. The ATEs of AI-IO and AirIO are 1.005 and 1.808
+respectively, and AI-IO outperforms AirIO by 51.2% in ATE.                                                 respectively, and AI-IO outperforms AirIO by 44.4% in ATE.
+
+to directly infer velocity and position, so its original filter                                               1) How does AI-IO generalize to real-time systems?: The
+fusion is still used.                                                                                      training data--randomly sampled by human pilots--covers
+                                                                                                           trajectories with diverse characteristics, enabling AI-IO to
+   As shown in TABLE II, IMU preintegration has huge                                                       naturally generalize to real-world flights. As shown in Fig. 8,
+cumulative errors in both velocity and position, and IMO                                                   the deployed AI-IO achieves real-time pose estimation on a
+is completely ineffective for flight data on non-fixed tracks.                                             human-piloted quadrotor. The body-frame velocity prediction
+AirIO and AI-IO have good generalization properties, achiev-                                               network runs with an average inference time of 8.9 ms while
+ing high accuracy across diverse datasets using only a                                                     maintaining high accuracy. Pose estimation is performed via
+subset of random flight data. However, our AI-IO method                                                    an EKF at 20 Hz, and the results remain highly consistent
+significantly outperforms other methods, achieving 57.4%                                                   over long-range and agile trajectories.
+and 29.3% improvements on AVE and ATE, respectively,
+compared to the state-of-the-art method, AirIO. Fig. 5 and 6                                                  2) How physical inductive bias facilitate training?: To
+show the velocity comparison and flight trajectory of a man-                                               investigate the inductive bias of physical information learned
+ual high and updown circle sequence, respectively. Whether                                                 during network training, we compare the velocity prediction
+comparing estimated velocity or position, AI-IO outperforms                                                errors of training from scratch versus fine-tuning. First, we
+AirIO. The IMU preintegration and IMO divergence is too                                                    train AI-IO on the dataset mentioned before. We then collect
+severe and is no longer shown.                                                                             a small volume of 7-minute flight data using a quadrotor with
+                                                                                                           modified mass and appearance, which is used to fine-tune the
+D. Real World Validation                                                                                   pre-trained model. As shown in Fig. 9, compared to training
+                                                                                                           from scratch with limited data, fine-tuning demonstrates
+   To demonstrate how AI-IO supports real-world applica-                                                   higher data utilization efficiency and converges to lower
+tions, we deploy it on the quadrotor platform shown in Fig.                                                errors more rapidly by leveraging the physical information
+3, which is equipped with a Radxa Zero3W computer (Quad-                                                   embedded in the pre-trained base model. This indicates that
+Core Arm Cortex-A55, up to 1.6GHz)4. We design the real-                                                   for any quadrotor, only a small amount of data is required
+time system demonstrated in Fig. 7 and then conduct indoor                                                 to quickly train a usable inertial odometry.
+flight tests:
+                                                                                                              3) How does AI-IO perform compared to other methods?:
+   4https://radxa.com/products/zeros/zero3w                                                                We mount the T265 camera on the original quadrotor plat-
+                               TABLE II: Comparison on our datasets. The best results are bold.
+
+Sequence            IMU preintegration1             IMO1                                        AirIO Net2                  AI-IO Net2
+
+                 AVE RVE ATE RTE AVE RVE ATE RTE AVE RVE ATE RTE AVE RVE ATE RTE
+
+manual high      54.68  12.01  104.1  24.61  6.033  8.572  22.72                  12.91  1.093  1.511  2.514  1.891  0.387  0.537  0.849  0.699
+manual medium    54.79  15.39  104.3  31.47  6.178  7.824  36.99                  17.65  0.836  1.087  1.773  1.235  0.285  0.363  0.994  0.569
+manual low       38.40  25.35  72.95  50.17  3.882  5.439  12.37                  8.397  0.715  0.909  2.072  1.161  0.268  0.336  0.783  0.434
+eight            56.09  7.991  108.2  17.69  3.987  3.473  80.61                  14.32  0.274  0.379  2.720  0.550  0.181  0.254  2.167  0.494
+updown eight     55.41  7.546  107.0  16.26  2.739  2.643  65.06                  9.517  0.356  0.438  1.678  0.776  0.182  0.236  1.256  0.407
+circle           56.11  6.538  108.3  14.34  3.770  4.343  68.32                  15.57  0.307  0.417  2.134  0.801  0.180  0.220  1.694  0.524
+updown circle    56.10  6.568  108.7  14.46  3.648  2.723  110.4                  16.10  0.418  0.525  4.326  1.147  0.204  0.236  3.380  0.643
+random           53.37  15.78  103.2  31.45  3.937  4.022  94.44                  14.62  0.448  0.588  3.255  0.941  0.206  0.235  3.347  0.594
+
+Average          53.12 12.15 102.1 25.06 4.272 4.880 61.37 13.63 0.556 0.732                           2.559  1.063  0.237  0.287  1.809  0.546
+
+1 leverage ground truth orientation to transform the IMU data to world frame for inference.
+2 leverage ground truth orientation to transform the net output to world frame for inference.
+
+           acc      B a,B         EKF           state                             achieves a 49.4% improvement in velocity estimation and a
+         buffer                 predict         buffer
+                                update                                            30.9% improvement in position estimation compared to state-
+          gyro                               RWB W v W p ba bg 
+         buffer                       bv                                          of-the-art methods. Future work may focus on developing
+
+          rpm    m      Sync   Network                                            network architectures more tightly integrated with physical
+         buffer
+                                                                                  priors (e.g., PINNs) to enhance interpretability and enable
+                                                                      Controller
+                                                                                  integration with multi-sensor frameworks such as VIO for
+Fig. 7: Real-time system overview: IMU-derived acceler-
+ation, angular velocity, and rotor speed (via bidirectional                       further improvement in position estimation.
+DShot) are time-synchronized and fed into the network for
+velocity prediction. Subsequently, EKF performs prediction                                                    REFERENCES
+and update steps, outputting pose information to the con-
+troller for closed-loop control.                                                   [1] Z. Wang, H. Zhao, S. Qiu, and Q. Gao, "Stance-phase detection for
+                                                                                        zupt-aided foot-mounted pedestrian navigation system," IEEE/ASME
+form and evaluate AI-IO (fine-tuned as described previously)                            Transactions On Mechatronics, vol. 20, no. 6, pp. 3170­3181, 2015.
+by comparing its localization accuracy with state-of-the-art
+AirIO (fine-tuned in the same way) and the T265's VIO in                           [2] H. Li, H. Liu, Z. Li, C. Li, Z. Meng, N. Gao, and Z. Zhang, "Adaptive
+indoor flight scenarios. To mitigate potential degradation in                           threshold-based zupt for single imu-enabled wearable pedestrian local-
+the T265's VIO, we place textured objects on one side of                                ization," IEEE Internet of Things Journal, vol. 10, no. 13, pp. 11749­
+the environment and then turn off the lights during flight.                             11760, 2023.
+As shown in Fig. 1, AI-IO consistently outperforms AirIO.
+Before the lights are turned off, AI-IO achieves localization                      [3] G. Cioffi, L. Bauersfeld, E. Kaufmann, and D. Scaramuzza, "Learned
+accuracy comparable to the T265's VIO. After light extinc-                              inertial odometry for autonomous drone racing," IEEE Robotics and
+tion, however, the T265's VIO degrades and diverges from                                Automation Letters, vol. 8, no. 5, pp. 2684­2691, 2023.
+the ground truth, whereas AI-IO maintains high consistency.
+                                                                                   [4] Y. Qiu, C. Xu, Y. Chen, S. Zhao, J. Geng, and S. Scherer, "Airio:
+            V. CONCLUSION & DISCUSSION                                                  Learning inertial odometry with enhanced imu feature observability,"
+                                                                                        arXiv preprint arXiv:2501.15659, 2025.
+   In this work, we propose a novel perspective grounded
+in quadrotor aerodynamics and IMU models to explain and                            [5] D. Sartori, D. Zou, L. Pei, and W. Yu, "A revisited approach to lateral
+guide the design of learning-based inertial odometry. Guided                            acceleration modeling for quadrotor uavs state estimation," in 2018
+by this framework, we develop the AI-IO, a lightweight                                  IEEE/RSJ International Conference on Intelligent Robots and Systems
+transformer-based inertial odometry that, when combined                                 (IROS), pp. 5711­5718, IEEE, 2018.
+with an EKF, achieves real-time inference on real-world
+and delivers high pose estimation accuracy. Additionally,                          [6] R. Wang, D. Zou, C. Xu, L. Pei, P. Liu, and W. Yu, "An aerodynamic
+we collect and release a high-maneuverability IMU dataset                               model-aided state estimator for multi-rotor uavs," in 2017 IEEE/RSJ
+for quadrotors. Experimental results across diverse datasets                            International Conference on Intelligent Robots and Systems (IROS),
+and real-world platforms demonstrate that our framework                                 pp. 2164­2170, IEEE, 2017.
+
+                                                                                   [7] T. Qin, P. Li, and S. Shen, "Vins-mono: A robust and versatile monoc-
+                                                                                        ular visual-inertial state estimator," IEEE transactions on robotics,
+                                                                                        vol. 34, no. 4, pp. 1004­1020, 2018.
+
+                                                                                   [8] T. Shan, B. Englot, D. Meyers, W. Wang, C. Ratti, and D. Rus,
+                                                                                        "Lio-sam: Tightly-coupled lidar inertial odometry via smoothing and
+                                                                                        mapping," in 2020 IEEE/RSJ international conference on intelligent
+                                                                                        robots and systems (IROS), pp. 5135­5142, IEEE, 2020.
+
+                                                                                   [9] M. A. Esfahani, H. Wang, K. Wu, and S. Yuan, "Orinet: Robust 3-d
+                                                                                        orientation estimation with a single particular imu," IEEE Robotics
+                                                                                        and Automation Letters, vol. 5, no. 2, pp. 399­406, 2019.
+
+                                                                                  [10] H. Chen, P. Aggarwal, T. Taha, and V. Chodavarapu, "Improving
+                                                                                        inertial sensor by reducing errors using deep learning methodology.
+                                                                                        naecon 2018-ieee national aerospace and electronics conference,"
+                                                                                        2018.
+
+                                                                                  [11] C. Chen, X. Lu, A. Markham, and N. Trigoni, "Ionet: Learning to cure
+                                                                                        the curse of drift in inertial odometry," in Proceedings of the AAAI
+                                                                                        conference on artificial intelligence, vol. 32, 2018.
+
+                                                                                  [12] S. Herath, H. Yan, and Y. Furukawa, "Ronin: Robust neural inertial
+                                                                                        navigation in the wild: Benchmark, evaluations, & new methods,"
+                                                                                        in 2020 IEEE international conference on robotics and automation
+                                                                                        (ICRA), pp. 3146­3152, IEEE, 2020.
+                                                                                                       Start Point                   End Points                          Velocity [m/s]
+                                                                                                           Ground Truth
+                                                                                                                                     AI-IO                           4
+
+                                                                                                                                                                  x  2
+
+                                                                                                                                                                     0
+
+                                                                                                                                                                     -2
+
+                                                                                                                                                                     -4
+
+                                                                                                                                                                     4
+
+                                                                                         5                                                                           2
+
+                                                                                                                                                                  y  0
+
+                                                                                         4                                                                           -2
+
+                                                                                         3                                                                           -4
+
+                                                                                         2                                                                 X [m]10
+                                                                                         Z [m]
+                                                                                                                                     8                               2
+
+                                                                                         1                                           6                            z
+
+                                                                                                                                                                     0
+
+                                                                                         0                                               4
+
+                                                                                         -1                                              2                           -2
+                                                                                                                                                                              0 2 4 6 8 10
+                                                                                                       4  2                   0  -2
+                                                                                                                                                                         Time [s]
+                                                                                                                       Y [m]
+
+Fig. 8: We deploy the trained lightweight network on a low-compute platform for real-time body-frame velocity estimation,
+then integrate it with an extended Kalman filter to estimate the pose. The quadrotor is maneuvered randomly by human
+pilots in low-light indoor environments.
+
+     Finetune                                                                            From Scratch                         [23] R. Wang, D. Zou, L. Pei, P. Liu, and C. Xu, "Velocity prediction
+                                                                                                                                    for multi-rotor uavs based on machine learning," in China Satellite
+0.9                                                                                 0.6                                             Navigation Conference (CSNC) 2016 Proceedings: Volume II, pp. 487­
+Train Velocity Error (m/s)                                                                                                          500, Springer, 2016.
+0.6                                                      Test Velocity Error (m/s)  0.4
+                                                                                                                              [24] R. Mahony, V. Kumar, and P. Corke, "Multirotor aerial vehicles:
+0.3                                                                                 0.2                                             Modeling, estimation, and control of quadrotor," IEEE robotics &
+                                                                                                                                    automation magazine, vol. 19, no. 3, pp. 20­32, 2012.
+0                                                                                   0
+     1 2 3 4 5 6 7 8 9 10                                                                1 2 3 4 5 6 7 8 9 10                 [25] J. Yang, K. Z. Luo, J. Li, C. Deng, L. Guibas, D. Krishnan, K. Q.
+                                                                                                                                    Weinberger, Y. Tian, and Y. Wang, "Denoising vision transformers,"
+                  Training Epochs                                                                     Training Epochs               in European Conference on Computer Vision, pp. 453­469, Springer,
+                                                                                                                                    2024.
+Fig. 9: Comparison of velocity prediction errors between
+training from scratch and fine-tuning on the training and                                                                     [26] Z. Wang, X. Cun, J. Bao, W. Zhou, J. Liu, and H. Li, "Uformer: A
+testing datasets.                                                                                                                   general u-shaped transformer for image restoration," in Proceedings of
+                                                                                                                                    the IEEE/CVF conference on computer vision and pattern recognition,
+[13] H. Yan, Q. Shan, and Y. Furukawa, "Ridi: Robust imu double                                                                     pp. 17683­17693, 2022.
+      integration," in Proceedings of the European conference on computer
+      vision (ECCV), pp. 621­636, 2018.                                                                                       [27] J. Chen, Q. Mao, and D. Liu, "Dual-path transformer network: Direct
+                                                                                                                                    context-aware modeling for end-to-end monaural speech separation,"
+[14] W. Liu, D. Caruso, E. Ilg, J. Dong, A. I. Mourikis, K. Daniilidis,                                                             arXiv preprint arXiv:2007.13975, 2020.
+      V. Kumar, and J. Engel, "Tlio: Tight learned inertial odometry," IEEE
+      Robotics and Automation Letters, vol. 5, no. 4, pp. 5653­5660, 2020.                                                    [28] M. Brossard, S. Bonnabel, and A. Barrau, "Denoising imu gyroscopes
+                                                                                                                                    with deep learning for open-loop attitude estimation," IEEE Robotics
+[15] S. Sun, D. Melamed, and K. Kitani, "Idol: Inertial deep orientation-                                                           and Automation Letters, vol. 5, no. 3, pp. 4796­4803, 2020.
+      estimation and localization," in Proceedings of the AAAI Conference
+      on Artificial Intelligence, vol. 35, pp. 6128­6137, 2021.                                                               [29] Z. Wang and L. Wu, "Theoretical analysis of the inductive biases
+                                                                                                                                    in deep convolutional networks," Advances in Neural Information
+[16] A. Bajwa, C. C. Cossette, M. A. Shalaby, and J. R. Forbes, "Dive:                                                              Processing Systems, vol. 36, pp. 74289­74338, 2023.
+      Deep inertial-only velocity aided estimation for quadrotors," IEEE
+      Robotics and Automation Letters, vol. 9, no. 4, pp. 3728­3734, 2024.                                                    [30] R. L. Russell and C. Reale, "Multivariate uncertainty in deep learning,"
+                                                                                                                                    IEEE Transactions on Neural Networks and Learning Systems, vol. 33,
+[17] R. Buchanan, M. Camurri, F. Dellaert, and M. Fallon, "Learning                                                                 no. 12, pp. 7937­7943, 2021.
+      inertial odometry for dynamic legged robot state estimation," in
+      Conference on robot learning, pp. 1575­1584, PMLR, 2022.                                                                [31] A. Antonini, W. Guerra, V. Murali, T. Sayre-McCord, and S. Karaman,
+                                                                                                                                    "The blackbird dataset: A large-scale dataset for UAV perception in
+[18] B. Rao, E. Kazemi, Y. Ding, D. M. Shila, F. M. Tucker, and L. Wang,                                                            aggressive flight," CoRR, vol. abs/1810.01987, 2018.
+      "Ctin: Robust contextual transformer network for inertial navigation,"
+      in Proceedings of the AAAI Conference on Artificial Intelligence,                                                       [32] K. Zhang, T. Yang, Z. Ding, C. Xu, and F. Gao, "The visual-inertial-
+      vol. 36, pp. 5413­5421, 2022.                                                                                                 dynamical UAV dataset," CoRR, vol. abs/2103.11152, 2021.
+
+[19] S. M. Nguyen, D. V. Le, and P. Havinga, "imot: Inertial motion                                                           [33] A. I. Mourikis and S. I. Roumeliotis, "A multi-state constraint kalman
+      transformer for inertial navigation," in Proceedings of the AAAI                                                              filter for vision-aided inertial navigation," in Proceedings 2007 IEEE
+      Conference on Artificial Intelligence, vol. 39, pp. 6209­6217, 2025.                                                          International Conference on Robotics and Automation, pp. 3565­3572,
+                                                                                                                                    2007.
+[20] M. Bangura, M. Melega, R. Naldi, and R. Mahony, "Aerodynamics of
+      rotor blades for quadrotors," arXiv preprint arXiv:1601.00733, 2016.                                                    [34] C. Forster, L. Carlone, F. Dellaert, and D. Scaramuzza, "Imu preinte-
+                                                                                                                                    gration on manifold for efficient visual-inertial maximum-a-posteriori
+[21] R. Gill and R. D'Andrea, "Computationally efficient force and moment                                                           estimation," in Robotics: Science and Systems (RSS), (Rome, Italy),
+      models for propellers in uav forward flight applications," Drones,                                                            pp. 1­20, Unknown, July 2015.
+      vol. 3, no. 4, p. 77, 2019.
+
+[22] K. Zhang, C. Jiang, J. Li, S. Yang, T. Ma, C. Xu, and F. Gao,
+      "Dido: Deep inertial quadrotor dynamical odometry," IEEE Robotics
+      and Automation Letters, vol. 7, no. 4, pp. 9083­9090, 2022.
+
